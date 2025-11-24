@@ -23,4 +23,4 @@ require (
 // Для локальной разработки используйте replace:
 // Клиент зависит от proto файлов из auth-service
 // При использовании в других проектах, убедитесь, что auth-service доступен
-replace github.com/octawire/auth-service => ../..
+replace github.com/octawire/auth-service => /var/www/national-union.ru/octawire/services/auth-service

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	authv1 "github.com/octawire/auth-service/internal/proto"
+	authv1 "github.com/octawire/auth-service/pkg/proto"
 )
 
 // cachedKeyInfo содержит информацию о закэшированном ключе
