@@ -6,7 +6,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	authv1 "github.com/octawire/auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
 )
 
 // Client представляет клиент для Auth Service

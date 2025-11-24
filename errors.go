@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	authv1 "github.com/octawire/auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
 )
 
 // Предопределенные ошибки клиента
