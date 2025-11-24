@@ -2,10 +2,12 @@
 
 Go клиент для работы с Auth Service (v0.9.1) через gRPC.
 
+**Репозиторий:** [https://github.com/kabiroman/octawire-auth-service](https://github.com/kabiroman/octawire-auth-service)
+
 ## Установка
 
 ```bash
-go get github.com/octawire/auth-service/clients/go
+go get github.com/kabiroman/octawire-auth-service
 ```
 
 ## Быстрый старт
@@ -17,7 +19,7 @@ import (
     "context"
     "log"
     
-    "github.com/octawire/auth-service/clients/go"
+    "github.com/kabiroman/octawire-auth-service"
     authv1 "github.com/octawire/auth-service/internal/proto"
 )
 
@@ -310,6 +312,10 @@ resp, _ := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
 ```bash
 go test ./...
 ```
+
+## Репозиторий
+
+- **GitHub:** [https://github.com/kabiroman/octawire-auth-service](https://github.com/kabiroman/octawire-auth-service)
 
 ## Лицензия
 

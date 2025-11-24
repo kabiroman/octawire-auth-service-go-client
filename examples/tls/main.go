@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/octawire/auth-service/clients/go"
+	"github.com/kabiroman/octawire-auth-service"
 	authv1 "github.com/octawire/auth-service/internal/proto"
 )
 

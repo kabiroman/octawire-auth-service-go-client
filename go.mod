@@ -1,4 +1,4 @@
-module github.com/octawire/auth-service/clients/go
+module github.com/kabiroman/octawire-auth-service
 
 go 1.24.0
 
@@ -8,5 +8,8 @@ require (
 	google.golang.org/protobuf v1.36.10
 )
 
+// Для локальной разработки используйте replace:
+// Клиент зависит от proto файлов из auth-service
+// При использовании в других проектах, убедитесь, что auth-service доступен
 replace github.com/octawire/auth-service => ../..
 
