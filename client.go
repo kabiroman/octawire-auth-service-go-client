@@ -1,0 +1,432 @@
+package client
+
+import (
+	"context"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+
+	authv1 "github.com/octawire/auth-service/internal/proto"
+)
+
+// Client представляет клиент для Auth Service
+type Client struct {
+	conn              *grpc.ClientConn
+	jwtClient         authv1.JWTServiceClient
+	apiKeyClient      authv1.APIKeyServiceClient
+	keyCache          *KeyCache
+	config            *ClientConfig
+}
+
+// NewClient создает новый клиент и устанавливает соединение с сервером
+func NewClient(config *ClientConfig) (*Client, error) {
+	if config == nil {
+		return nil, &ClientError{Message: "config is required"}
+	}
+
+	if config.Address == "" {
+		return nil, &ClientError{Message: "address is required"}
+	}
+
+	// Загружаем TLS конфигурацию
+	tlsOption, err := LoadTLSConfig(config.TLS)
+	if err != nil {
+		return nil, err
+	}
+
+	// Настраиваем опции подключения
+	opts := []grpc.DialOption{
+		tlsOption,
+	}
+
+	// Устанавливаем таймаут подключения
+	if config.Timeout != nil && config.Timeout.Connect > 0 {
+		opts = append(opts, grpc.WithTimeout(config.Timeout.Connect))
+	}
+
+	// Устанавливаем соединение
+	conn, err := grpc.NewClient(config.Address, opts...)
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	// Создаем клиенты
+	jwtClient := authv1.NewJWTServiceClient(conn)
+	apiKeyClient := authv1.NewAPIKeyServiceClient(conn)
+
+	// Создаем кэш ключей
+	keyCache := NewKeyCache(config.KeyCache)
+
+	return &Client{
+		conn:         conn,
+		jwtClient:    jwtClient,
+		apiKeyClient: apiKeyClient,
+		keyCache:     keyCache,
+		config:       config,
+	}, nil
+}
+
+// Close закрывает соединение с сервером
+func (c *Client) Close() error {
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}
+
+// withContext создает контекст с таймаутом и метаданными
+func (c *Client) withContext(ctx context.Context, projectID string) (context.Context, context.CancelFunc) {
+	// Устанавливаем таймаут запроса
+	if c.config.Timeout != nil && c.config.Timeout.Request > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.config.Timeout.Request)
+		return c.withMetadata(ctx, projectID), cancel
+	}
+
+	// Создаем cancel функцию для контекста без таймаута
+	ctx, cancel := context.WithCancel(ctx)
+	return c.withMetadata(ctx, projectID), cancel
+}
+
+// withMetadata добавляет метаданные к контексту
+func (c *Client) withMetadata(ctx context.Context, projectID string) context.Context {
+	md := metadata.New(nil)
+
+	// Добавляем project_id, если указан
+	if projectID != "" {
+		md.Set("project-id", projectID)
+	} else if c.config.ProjectID != "" {
+		md.Set("project-id", c.config.ProjectID)
+	}
+
+	// Добавляем API ключ, если указан
+	if c.config.APIKey != "" {
+		md.Set("api-key", c.config.APIKey)
+	}
+
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+// getProjectID возвращает project_id из параметра или конфигурации
+func (c *Client) getProjectID(projectID string) string {
+	if projectID != "" {
+		return projectID
+	}
+	return c.config.ProjectID
+}
+
+// JWTService методы
+
+// IssueToken выдает новый JWT токен (access + refresh)
+func (c *Client) IssueToken(ctx context.Context, req *authv1.IssueTokenRequest) (*authv1.IssueTokenResponse, error) {
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
+	defer cancel()
+
+	var resp *authv1.IssueTokenResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.IssueToken(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// IssueServiceToken выдает межсервисный JWT токен
+func (c *Client) IssueServiceToken(ctx context.Context, req *authv1.IssueServiceTokenRequest) (*authv1.IssueTokenResponse, error) {
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
+	defer cancel()
+
+	var resp *authv1.IssueTokenResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.IssueServiceToken(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// ValidateToken валидирует токен
+func (c *Client) ValidateToken(ctx context.Context, req *authv1.ValidateTokenRequest) (*authv1.ValidateTokenResponse, error) {
+	ctx, cancel := c.withContext(ctx, "")
+	defer cancel()
+
+	var resp *authv1.ValidateTokenResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.ValidateToken(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// RefreshToken обновляет токен
+func (c *Client) RefreshToken(ctx context.Context, req *authv1.RefreshTokenRequest) (*authv1.RefreshTokenResponse, error) {
+	ctx, cancel := c.withContext(ctx, "")
+	defer cancel()
+
+	var resp *authv1.RefreshTokenResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.RefreshToken(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// RevokeToken отзывает токен
+func (c *Client) RevokeToken(ctx context.Context, req *authv1.RevokeTokenRequest) (*authv1.RevokeTokenResponse, error) {
+	ctx, cancel := c.withContext(ctx, "")
+	defer cancel()
+
+	var resp *authv1.RevokeTokenResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.RevokeToken(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// ParseToken парсит токен без валидации
+func (c *Client) ParseToken(ctx context.Context, req *authv1.ParseTokenRequest) (*authv1.ParseTokenResponse, error) {
+	ctx, cancel := c.withContext(ctx, "")
+	defer cancel()
+
+	var resp *authv1.ParseTokenResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.ParseToken(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// ExtractClaims извлекает claims из токена
+func (c *Client) ExtractClaims(ctx context.Context, req *authv1.ExtractClaimsRequest) (*authv1.ExtractClaimsResponse, error) {
+	ctx, cancel := c.withContext(ctx, "")
+	defer cancel()
+
+	var resp *authv1.ExtractClaimsResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.ExtractClaims(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// ValidateBatch выполняет пакетную валидацию токенов
+func (c *Client) ValidateBatch(ctx context.Context, req *authv1.ValidateBatchRequest) (*authv1.ValidateBatchResponse, error) {
+	ctx, cancel := c.withContext(ctx, "")
+	defer cancel()
+
+	var resp *authv1.ValidateBatchResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.ValidateBatch(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// GetPublicKey получает публичный ключ для проекта (с кэшированием)
+func (c *Client) GetPublicKey(ctx context.Context, req *authv1.GetPublicKeyRequest) (*authv1.GetPublicKeyResponse, error) {
+	projectID := c.getProjectID(req.ProjectId)
+
+	// Если указан key_id, пытаемся получить из кэша
+	if req.KeyId != "" {
+		if keyInfo, ok := c.keyCache.Get(projectID, req.KeyId); ok {
+			// Возвращаем ответ из кэша
+			return &authv1.GetPublicKeyResponse{
+				PublicKeyPem: keyInfo.PublicKeyPem,
+				Algorithm:    keyInfo.Algorithm,
+				KeyId:        keyInfo.KeyId,
+				ProjectId:    projectID,
+			}, nil
+		}
+	}
+
+	// Если не найден в кэше или не указан key_id, запрашиваем у сервера
+	ctx, cancel := c.withContext(ctx, projectID)
+	defer cancel()
+
+	var resp *authv1.GetPublicKeyResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.GetPublicKey(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	// Сохраняем в кэш
+	if resp != nil {
+		// Сохраняем основной ключ
+		if resp.KeyId != "" {
+			keyInfo := &authv1.PublicKeyInfo{
+				KeyId:        resp.KeyId,
+				PublicKeyPem: resp.PublicKeyPem,
+				Algorithm:    resp.Algorithm,
+			}
+			c.keyCache.Set(projectID, keyInfo, resp.CacheUntil)
+		}
+
+		// Сохраняем все активные ключи для graceful ротации
+		if len(resp.ActiveKeys) > 0 {
+			c.keyCache.SetAllActive(projectID, resp.ActiveKeys, resp.CacheUntil)
+		}
+	}
+
+	return resp, nil
+}
+
+// HealthCheck проверяет здоровье сервиса
+func (c *Client) HealthCheck(ctx context.Context) (*authv1.HealthCheckResponse, error) {
+	ctx, cancel := c.withContext(ctx, "")
+	defer cancel()
+
+	req := &authv1.HealthCheckRequest{}
+	var resp *authv1.HealthCheckResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.jwtClient.HealthCheck(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// APIKeyService методы
+
+// CreateAPIKey создает новый API ключ
+func (c *Client) CreateAPIKey(ctx context.Context, req *authv1.CreateAPIKeyRequest) (*authv1.CreateAPIKeyResponse, error) {
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
+	defer cancel()
+
+	var resp *authv1.CreateAPIKeyResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.apiKeyClient.CreateAPIKey(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// ValidateAPIKey валидирует API ключ
+func (c *Client) ValidateAPIKey(ctx context.Context, req *authv1.ValidateAPIKeyRequest) (*authv1.ValidateAPIKeyResponse, error) {
+	ctx, cancel := c.withContext(ctx, "")
+	defer cancel()
+
+	var resp *authv1.ValidateAPIKeyResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.apiKeyClient.ValidateAPIKey(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// RevokeAPIKey отзывает API ключ
+func (c *Client) RevokeAPIKey(ctx context.Context, req *authv1.RevokeAPIKeyRequest) (*authv1.RevokeAPIKeyResponse, error) {
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
+	defer cancel()
+
+	var resp *authv1.RevokeAPIKeyResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.apiKeyClient.RevokeAPIKey(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// ListAPIKeys возвращает список API ключей
+func (c *Client) ListAPIKeys(ctx context.Context, req *authv1.ListAPIKeysRequest) (*authv1.ListAPIKeysResponse, error) {
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
+	defer cancel()
+
+	var resp *authv1.ListAPIKeysResponse
+	err := WithRetry(ctx, func() error {
+		var err error
+		resp, err = c.apiKeyClient.ListAPIKeys(ctx, req)
+		return err
+	}, c.config.Retry)
+
+	if err != nil {
+		return nil, WrapError(err)
+	}
+
+	return resp, nil
+}
+
+// GetKeyCache возвращает кэш ключей (для управления)
+func (c *Client) GetKeyCache() *KeyCache {
+	return c.keyCache
+}
+
