@@ -1,6 +1,6 @@
 # Go Client для Auth Service
 
-Go клиент для работы с Auth Service (v0.9.1) через gRPC.
+Go клиент для работы с Auth Service (v0.9.2) через gRPC.
 
 **Репозиторий:** [https://github.com/kabiroman/octawire-auth-service-go-client](https://github.com/kabiroman/octawire-auth-service-go-client)
 
@@ -54,6 +54,23 @@ func main() {
 config := client.DefaultConfig("localhost:50051")
 config.ProjectID = "default-project-id"
 config.APIKey = "your-api-key" // Опционально
+```
+
+### Service Authentication
+
+Для использования `IssueServiceToken` требуется service authentication:
+
+```go
+config.ServiceName = "identity-service"
+config.ServiceSecret = "identity-service-secret-abc123"
+```
+
+### JWT Authentication
+
+Для методов, требующих JWT аутентификации (ValidateToken, ParseToken, RevokeToken, ValidateBatch, ExtractClaims, и все методы APIKeyService), требуется JWT токен:
+
+```go
+config.JWTToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
 
 ### TLS/mTLS конфигурация
@@ -116,7 +133,14 @@ resp, err := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
 
 #### ValidateToken - Валидация токена
 
+**Требует JWT аутентификации** (JWTToken должен быть установлен в конфигурации):
+
 ```go
+// Настройка JWT токена
+config.JWTToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+cl, _ := client.NewClient(config)
+
+// Валидация токена
 resp, err := cl.ValidateToken(ctx, &authv1.ValidateTokenRequest{
     Token:         "jwt-token",
     CheckBlacklist: true,
@@ -148,20 +172,48 @@ resp, err := cl.GetPublicKey(ctx, &authv1.GetPublicKeyRequest{
 
 Метод автоматически кэширует ключи и использует кэш при повторных запросах.
 
+#### IssueServiceToken - Выдача межсервисного токена
+
+**Требует service authentication** (ServiceName и ServiceSecret должны быть установлены в конфигурации):
+
+```go
+// Настройка service authentication
+config.ServiceName = "identity-service"
+config.ServiceSecret = "identity-service-secret-abc123"
+cl, _ := client.NewClient(config)
+
+// Выдача межсервисного токена
+resp, err := cl.IssueServiceToken(ctx, &authv1.IssueServiceTokenRequest{
+    SourceService: "identity-service",
+    TargetService: "gateway-service",
+    UserId:        "user-123",
+    Claims: map[string]string{
+        "role": "admin",
+    },
+    Ttl:       3600,
+    ProjectId: "project-id",
+})
+```
+
 #### Другие методы
 
-- `IssueServiceToken` - выдача межсервисного токена
-- `RevokeToken` - отзыв токена
-- `ParseToken` - парсинг токена без валидации
-- `ExtractClaims` - извлечение claims из токена
-- `ValidateBatch` - пакетная валидация токенов
-- `HealthCheck` - проверка здоровья сервиса
+- `RevokeToken` - отзыв токена (требует JWT аутентификации)
+- `ParseToken` - парсинг токена без валидации (требует JWT аутентификации)
+- `ExtractClaims` - извлечение claims из токена (требует JWT аутентификации)
+- `ValidateBatch` - пакетная валидация токенов (требует JWT аутентификации)
+- `HealthCheck` - проверка здоровья сервиса (публичный метод)
 
 ### API Key Service методы
+
+**Все методы APIKeyService требуют JWT аутентификации** (JWTToken должен быть установлен в конфигурации).
 
 #### CreateAPIKey - Создание API ключа
 
 ```go
+// Настройка JWT токена
+config.JWTToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+cl, _ := client.NewClient(config)
+
 resp, err := cl.CreateAPIKey(ctx, &authv1.CreateAPIKeyRequest{
     ProjectId: "project-id",
     UserId:    "user-id", // Опционально
@@ -268,6 +320,8 @@ if err != nil {
         // Токен истек
     } else if errors.Is(err, client.ErrTokenRevoked) {
         // Токен отозван
+    } else if errors.Is(err, client.ErrServiceAuthFailed) {
+        // Ошибка service authentication (неверный service-name или service-secret)
     } else if errors.Is(err, client.ErrConnectionFailed) {
         // Ошибка подключения
     } else if errors.Is(err, client.ErrRateLimitExceeded) {
@@ -275,6 +329,15 @@ if err != nil {
     }
 }
 ```
+
+### Типы ошибок
+
+- `ErrInvalidToken` - Токен невалиден (синтаксис, формат, подпись)
+- `ErrTokenExpired` - Токен истек
+- `ErrTokenRevoked` - Токен отозван (в blacklist)
+- `ErrServiceAuthFailed` - Ошибка service authentication (неверный service-name или service-secret)
+- `ErrConnectionFailed` - Ошибка подключения к серверу
+- `ErrRateLimitExceeded` - Превышен лимит запросов
 
 ## Работа с несколькими проектами
 

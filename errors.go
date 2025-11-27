@@ -12,11 +12,12 @@ import (
 
 // Предопределенные ошибки клиента
 var (
-	ErrConnectionFailed = errors.New("connection failed")
-	ErrInvalidToken     = errors.New("invalid token")
-	ErrTokenExpired     = errors.New("token expired")
-	ErrTokenRevoked     = errors.New("token revoked")
+	ErrConnectionFailed  = errors.New("connection failed")
+	ErrInvalidToken      = errors.New("invalid token")
+	ErrTokenExpired      = errors.New("token expired")
+	ErrTokenRevoked      = errors.New("token revoked")
 	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+	ErrServiceAuthFailed = errors.New("service authentication failed")
 )
 
 // ClientError представляет ошибку клиента с дополнительной информацией
@@ -59,6 +60,29 @@ func WrapError(err error) error {
 		return fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 	case codes.ResourceExhausted:
 		return fmt.Errorf("%w: %v", ErrRateLimitExceeded, err)
+	case codes.PermissionDenied:
+		// Проверяем, является ли это ошибкой service authentication
+		msg := st.Message()
+		if contains(msg, "service authentication") || contains(msg, "service-name") || contains(msg, "service-secret") {
+			return &ClientError{
+				Code:    authv1.ErrorCode_ERROR_UNAUTHENTICATED,
+				Message: msg,
+				Err:     fmt.Errorf("%w: %v", ErrServiceAuthFailed, err),
+			}
+		}
+		// Общая ошибка PermissionDenied
+		return &ClientError{
+			Code:    authv1.ErrorCode_ERROR_UNAUTHENTICATED,
+			Message: msg,
+			Err:     err,
+		}
+	case codes.Unauthenticated:
+		// JWT authentication failed
+		return &ClientError{
+			Code:    authv1.ErrorCode_ERROR_UNAUTHENTICATED,
+			Message: st.Message(),
+			Err:     err,
+		}
 	}
 
 	// Пытаемся извлечь ErrorCode из деталей ответа

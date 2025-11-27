@@ -104,6 +104,17 @@ func (c *Client) withMetadata(ctx context.Context, projectID string) context.Con
 		md.Set("api-key", c.config.APIKey)
 	}
 
+	// Добавляем service authentication, если указано
+	if c.config.ServiceName != "" && c.config.ServiceSecret != "" {
+		md.Set("service-name", c.config.ServiceName)
+		md.Set("service-secret", c.config.ServiceSecret)
+	}
+
+	// Добавляем JWT token для методов, требующих JWT аутентификации
+	if c.config.JWTToken != "" {
+		md.Set("authorization", "Bearer "+c.config.JWTToken)
+	}
+
 	return metadata.NewOutgoingContext(ctx, md)
 }
 
@@ -138,7 +149,15 @@ func (c *Client) IssueToken(ctx context.Context, req *authv1.IssueTokenRequest) 
 }
 
 // IssueServiceToken выдает межсервисный JWT токен
+// Требует service authentication: ServiceName и ServiceSecret должны быть установлены в конфигурации
 func (c *Client) IssueServiceToken(ctx context.Context, req *authv1.IssueServiceTokenRequest) (*authv1.IssueTokenResponse, error) {
+	// Проверяем наличие service authentication
+	if c.config.ServiceName == "" || c.config.ServiceSecret == "" {
+		return nil, &ClientError{
+			Message: "service authentication required: ServiceName and ServiceSecret must be set in config",
+		}
+	}
+
 	projectID := c.getProjectID(req.ProjectId)
 	ctx, cancel := c.withContext(ctx, projectID)
 	defer cancel()
@@ -158,6 +177,7 @@ func (c *Client) IssueServiceToken(ctx context.Context, req *authv1.IssueService
 }
 
 // ValidateToken валидирует токен
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ValidateToken(ctx context.Context, req *authv1.ValidateTokenRequest) (*authv1.ValidateTokenResponse, error) {
 	ctx, cancel := c.withContext(ctx, "")
 	defer cancel()
@@ -196,6 +216,7 @@ func (c *Client) RefreshToken(ctx context.Context, req *authv1.RefreshTokenReque
 }
 
 // RevokeToken отзывает токен
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) RevokeToken(ctx context.Context, req *authv1.RevokeTokenRequest) (*authv1.RevokeTokenResponse, error) {
 	ctx, cancel := c.withContext(ctx, "")
 	defer cancel()
@@ -215,6 +236,7 @@ func (c *Client) RevokeToken(ctx context.Context, req *authv1.RevokeTokenRequest
 }
 
 // ParseToken парсит токен без валидации
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ParseToken(ctx context.Context, req *authv1.ParseTokenRequest) (*authv1.ParseTokenResponse, error) {
 	ctx, cancel := c.withContext(ctx, "")
 	defer cancel()
@@ -234,6 +256,7 @@ func (c *Client) ParseToken(ctx context.Context, req *authv1.ParseTokenRequest) 
 }
 
 // ExtractClaims извлекает claims из токена
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ExtractClaims(ctx context.Context, req *authv1.ExtractClaimsRequest) (*authv1.ExtractClaimsResponse, error) {
 	ctx, cancel := c.withContext(ctx, "")
 	defer cancel()
@@ -253,6 +276,7 @@ func (c *Client) ExtractClaims(ctx context.Context, req *authv1.ExtractClaimsReq
 }
 
 // ValidateBatch выполняет пакетную валидацию токенов
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ValidateBatch(ctx context.Context, req *authv1.ValidateBatchRequest) (*authv1.ValidateBatchResponse, error) {
 	ctx, cancel := c.withContext(ctx, "")
 	defer cancel()
@@ -347,6 +371,7 @@ func (c *Client) HealthCheck(ctx context.Context) (*authv1.HealthCheckResponse, 
 // APIKeyService методы
 
 // CreateAPIKey создает новый API ключ
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) CreateAPIKey(ctx context.Context, req *authv1.CreateAPIKeyRequest) (*authv1.CreateAPIKeyResponse, error) {
 	projectID := c.getProjectID(req.ProjectId)
 	ctx, cancel := c.withContext(ctx, projectID)
@@ -367,6 +392,7 @@ func (c *Client) CreateAPIKey(ctx context.Context, req *authv1.CreateAPIKeyReque
 }
 
 // ValidateAPIKey валидирует API ключ
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ValidateAPIKey(ctx context.Context, req *authv1.ValidateAPIKeyRequest) (*authv1.ValidateAPIKeyResponse, error) {
 	ctx, cancel := c.withContext(ctx, "")
 	defer cancel()
@@ -386,6 +412,7 @@ func (c *Client) ValidateAPIKey(ctx context.Context, req *authv1.ValidateAPIKeyR
 }
 
 // RevokeAPIKey отзывает API ключ
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) RevokeAPIKey(ctx context.Context, req *authv1.RevokeAPIKeyRequest) (*authv1.RevokeAPIKeyResponse, error) {
 	projectID := c.getProjectID(req.ProjectId)
 	ctx, cancel := c.withContext(ctx, projectID)
@@ -406,6 +433,7 @@ func (c *Client) RevokeAPIKey(ctx context.Context, req *authv1.RevokeAPIKeyReque
 }
 
 // ListAPIKeys возвращает список API ключей
+// Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ListAPIKeys(ctx context.Context, req *authv1.ListAPIKeysRequest) (*authv1.ListAPIKeysResponse, error) {
 	projectID := c.getProjectID(req.ProjectId)
 	ctx, cancel := c.withContext(ctx, projectID)

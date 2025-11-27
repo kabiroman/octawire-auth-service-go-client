@@ -375,3 +375,149 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, 3, config.Retry.MaxAttempts)
 }
 
+// TestIssueServiceTokenWithServiceAuth тестирует IssueServiceToken с service authentication
+func TestIssueServiceTokenWithServiceAuth(t *testing.T) {
+	mockJWT := new(MockJWTServiceClient)
+	mockAPIKey := new(MockAPIKeyServiceClient)
+
+	config := DefaultConfig("localhost:50051")
+	config.ServiceName = "identity-service"
+	config.ServiceSecret = "identity-service-secret-abc123"
+
+	cl := &Client{
+		jwtClient:    mockJWT,
+		apiKeyClient: mockAPIKey,
+		keyCache:     NewKeyCache(nil),
+		config:       config,
+	}
+
+	req := &authv1.IssueServiceTokenRequest{
+		SourceService: "identity-service",
+		TargetService: "gateway-service",
+		UserId:        "user-123",
+	}
+
+	expectedResp := &authv1.IssueTokenResponse{
+		AccessToken:  "service-token",
+		RefreshToken: "",
+		KeyId:        "key-1",
+	}
+
+	mockJWT.On("IssueServiceToken", mock.Anything, req).Return(expectedResp, nil)
+
+	resp, err := cl.IssueServiceToken(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedResp.AccessToken, resp.AccessToken)
+	mockJWT.AssertExpectations(t)
+}
+
+// TestIssueServiceTokenWithoutServiceAuth тестирует IssueServiceToken без service authentication
+func TestIssueServiceTokenWithoutServiceAuth(t *testing.T) {
+	mockJWT := new(MockJWTServiceClient)
+	mockAPIKey := new(MockAPIKeyServiceClient)
+
+	config := DefaultConfig("localhost:50051")
+	// ServiceName и ServiceSecret не установлены
+
+	cl := &Client{
+		jwtClient:    mockJWT,
+		apiKeyClient: mockAPIKey,
+		keyCache:     NewKeyCache(nil),
+		config:       config,
+	}
+
+	req := &authv1.IssueServiceTokenRequest{
+		SourceService: "identity-service",
+	}
+
+	_, err := cl.IssueServiceToken(context.Background(), req)
+	assert.Error(t, err)
+	var clientErr *ClientError
+	assert.True(t, errors.As(err, &clientErr))
+	assert.Contains(t, clientErr.Message, "service authentication required")
+	mockJWT.AssertNotCalled(t, "IssueServiceToken")
+}
+
+// TestValidateTokenWithJWT тестирует ValidateToken с JWT token в конфигурации
+func TestValidateTokenWithJWT(t *testing.T) {
+	mockJWT := new(MockJWTServiceClient)
+	mockAPIKey := new(MockAPIKeyServiceClient)
+
+	config := DefaultConfig("localhost:50051")
+	config.JWTToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+	cl := &Client{
+		jwtClient:    mockJWT,
+		apiKeyClient: mockAPIKey,
+		keyCache:     NewKeyCache(nil),
+		config:       config,
+	}
+
+	req := &authv1.ValidateTokenRequest{
+		Token:         "token-to-validate",
+		CheckBlacklist: true,
+	}
+
+	expectedResp := &authv1.ValidateTokenResponse{
+		Valid: true,
+		Claims: &authv1.TokenClaims{
+			UserId: "user-123",
+		},
+	}
+
+	mockJWT.On("ValidateToken", mock.Anything, req).Return(expectedResp, nil)
+
+	resp, err := cl.ValidateToken(context.Background(), req)
+	assert.NoError(t, err)
+	assert.True(t, resp.Valid)
+	mockJWT.AssertExpectations(t)
+}
+
+// TestWrapErrorPermissionDenied тестирует обработку PermissionDenied ошибки
+func TestWrapErrorPermissionDenied(t *testing.T) {
+	tests := []struct {
+		name           string
+		err            error
+		expectedErr    error
+		checkServiceAuth bool
+	}{
+		{
+			name: "Service authentication failed",
+			err:  status.Error(codes.PermissionDenied, "service authentication failed: invalid service-name or service-secret"),
+			expectedErr: ErrServiceAuthFailed,
+			checkServiceAuth: true,
+		},
+		{
+			name: "General PermissionDenied",
+			err:  status.Error(codes.PermissionDenied, "permission denied"),
+			expectedErr: nil, // Should return ClientError with ERROR_UNAUTHENTICATED
+			checkServiceAuth: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wrapped := WrapError(tt.err)
+			assert.Error(t, wrapped)
+
+			if tt.checkServiceAuth {
+				assert.True(t, errors.Is(wrapped, ErrServiceAuthFailed))
+			} else {
+				var clientErr *ClientError
+				assert.True(t, errors.As(wrapped, &clientErr))
+				assert.Equal(t, authv1.ErrorCode_ERROR_UNAUTHENTICATED, clientErr.Code)
+			}
+		})
+	}
+}
+
+// TestWrapErrorUnauthenticated тестирует обработку Unauthenticated ошибки
+func TestWrapErrorUnauthenticated(t *testing.T) {
+	err := status.Error(codes.Unauthenticated, "JWT authentication failed")
+	wrapped := WrapError(err)
+
+	var clientErr *ClientError
+	assert.True(t, errors.As(wrapped, &clientErr))
+	assert.Equal(t, authv1.ErrorCode_ERROR_UNAUTHENTICATED, clientErr.Code)
+}
+
