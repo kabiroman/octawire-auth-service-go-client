@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -50,6 +51,17 @@ func WrapError(err error) error {
 	// Проверяем, является ли это gRPC статус ошибкой
 	st, ok := status.FromError(err)
 	if !ok {
+		// Если это не gRPC ошибка, проверяем на ошибки подключения/TLS
+		errStr := err.Error()
+		errLower := strings.ToLower(errStr)
+		
+		// Проверяем на типичные ошибки TLS/подключения
+		if strings.Contains(errLower, "tls") || strings.Contains(errLower, "certificate") ||
+			strings.Contains(errLower, "connection refused") || strings.Contains(errLower, "no such host") ||
+			strings.Contains(errLower, "timeout") || strings.Contains(errLower, "dial") {
+			return fmt.Errorf("%w: %v", ErrConnectionFailed, err)
+		}
+		
 		// Если это не gRPC ошибка, возвращаем как есть
 		return err
 	}
@@ -57,29 +69,39 @@ func WrapError(err error) error {
 	// Обрабатываем коды ошибок
 	switch st.Code() {
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
+		msg := st.Message()
+		msgLower := strings.ToLower(msg)
+		
+		// Проверяем на специфичные ошибки подключения
+		if strings.Contains(msgLower, "tls") || strings.Contains(msgLower, "certificate") ||
+			strings.Contains(msgLower, "connection refused") || strings.Contains(msgLower, "no such host") {
+			return fmt.Errorf("%w: %v", ErrConnectionFailed, err)
+		}
+		
 		return fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 	case codes.ResourceExhausted:
 		return fmt.Errorf("%w: %v", ErrRateLimitExceeded, err)
 	case codes.PermissionDenied:
 		// Проверяем, является ли это ошибкой service authentication
 		msg := st.Message()
-		if contains(msg, "service authentication") || contains(msg, "service-name") || contains(msg, "service-secret") {
+		msgLower := strings.ToLower(msg)
+		if strings.Contains(msgLower, "service authentication") || strings.Contains(msgLower, "service-name") || strings.Contains(msgLower, "service-secret") {
 			return &ClientError{
-				Code:    authv1.ErrorCode_ERROR_UNAUTHENTICATED,
+				Code:    authv1.ErrorCode_ERROR_UNKNOWN,
 				Message: msg,
 				Err:     fmt.Errorf("%w: %v", ErrServiceAuthFailed, err),
 			}
 		}
 		// Общая ошибка PermissionDenied
 		return &ClientError{
-			Code:    authv1.ErrorCode_ERROR_UNAUTHENTICATED,
+			Code:    authv1.ErrorCode_ERROR_UNKNOWN,
 			Message: msg,
 			Err:     err,
 		}
 	case codes.Unauthenticated:
 		// JWT authentication failed
 		return &ClientError{
-			Code:    authv1.ErrorCode_ERROR_UNAUTHENTICATED,
+			Code:    authv1.ErrorCode_ERROR_UNKNOWN,
 			Message: st.Message(),
 			Err:     err,
 		}
@@ -95,21 +117,22 @@ func WrapError(err error) error {
 
 	// Для простоты, если это ошибка валидации токена, проверяем сообщение
 	msg := st.Message()
-	if contains(msg, "invalid token") || contains(msg, "invalid signature") {
+	msgLower := strings.ToLower(msg)
+	if strings.Contains(msgLower, "invalid token") || strings.Contains(msgLower, "invalid signature") {
 		return &ClientError{
 			Code:    authv1.ErrorCode_ERROR_INVALID_TOKEN,
 			Message: msg,
 			Err:     err,
 		}
 	}
-	if contains(msg, "expired") {
+	if strings.Contains(msgLower, "expired") {
 		return &ClientError{
 			Code:    authv1.ErrorCode_ERROR_EXPIRED_TOKEN,
 			Message: msg,
 			Err:     err,
 		}
 	}
-	if contains(msg, "revoked") {
+	if strings.Contains(msgLower, "revoked") {
 		return &ClientError{
 			Code:    authv1.ErrorCode_ERROR_TOKEN_REVOKED,
 			Message: msg,
@@ -175,19 +198,4 @@ func IsRetryableError(err error) bool {
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
-		(len(s) > len(substr) && (s[:len(substr)] == substr || 
-			s[len(s)-len(substr):] == substr || 
-			containsMiddle(s, substr))))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
 

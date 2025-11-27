@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -47,7 +49,18 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	// Устанавливаем соединение
 	conn, err := grpc.NewClient(config.Address, opts...)
 	if err != nil {
-		return nil, WrapError(err)
+		// Улучшаем сообщение об ошибке подключения
+		wrappedErr := WrapError(err)
+		errStr := err.Error()
+		
+		// Добавляем полезную информацию о конфигурации TLS
+		if config.TLS != nil && !config.TLS.Enabled {
+			if strings.Contains(strings.ToLower(errStr), "tls") || strings.Contains(strings.ToLower(errStr), "certificate") {
+				return nil, fmt.Errorf("%w: server may require TLS connection (check TLS configuration)", wrappedErr)
+			}
+		}
+		
+		return nil, wrappedErr
 	}
 
 	// Создаем клиенты

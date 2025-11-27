@@ -490,7 +490,7 @@ func TestWrapErrorPermissionDenied(t *testing.T) {
 		{
 			name: "General PermissionDenied",
 			err:  status.Error(codes.PermissionDenied, "permission denied"),
-			expectedErr: nil, // Should return ClientError with ERROR_UNAUTHENTICATED
+			expectedErr: nil, // Should return ClientError with ERROR_UNKNOWN
 			checkServiceAuth: false,
 		},
 	}
@@ -505,7 +505,7 @@ func TestWrapErrorPermissionDenied(t *testing.T) {
 			} else {
 				var clientErr *ClientError
 				assert.True(t, errors.As(wrapped, &clientErr))
-				assert.Equal(t, authv1.ErrorCode_ERROR_UNAUTHENTICATED, clientErr.Code)
+				assert.Equal(t, authv1.ErrorCode_ERROR_UNKNOWN, clientErr.Code)
 			}
 		})
 	}
@@ -518,6 +518,6 @@ func TestWrapErrorUnauthenticated(t *testing.T) {
 
 	var clientErr *ClientError
 	assert.True(t, errors.As(wrapped, &clientErr))
-	assert.Equal(t, authv1.ErrorCode_ERROR_UNAUTHENTICATED, clientErr.Code)
+	assert.Equal(t, authv1.ErrorCode_ERROR_UNKNOWN, clientErr.Code)
 }
 
