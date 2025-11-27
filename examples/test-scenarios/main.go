@@ -13,10 +13,10 @@ import (
 )
 
 type TestResult struct {
-	Name      string
-	Passed    bool
-	Error     error
-	Message   string
+	Name    string
+	Passed  bool
+	Error   error
+	Message string
 }
 
 type TestSuite struct {
@@ -55,7 +55,7 @@ func (ts *TestSuite) PrintResults() {
 	fmt.Printf("\n=== Test Results for Scenario: %s ===\n", ts.Scenario)
 	passed := 0
 	failed := 0
-	
+
 	for _, result := range ts.Results {
 		if result.Passed {
 			fmt.Printf("✅ %s: PASSED", result.Name)
@@ -76,11 +76,11 @@ func (ts *TestSuite) PrintResults() {
 			failed++
 		}
 	}
-	
+
 	fmt.Printf("\nSummary: %d passed, %d failed\n", passed, failed)
 }
 
-const testAPIKey = "DRXpYsOsCNNa94SetlMjnUCvjWbDHW5OrnNlTee_cLc="
+const testAPIKey = "auth-service-development-key-xyz789uvw456"
 
 func main() {
 	scenario := flag.String("scenario", "dev-sa-true", "Test scenario: dev-sa-false, dev-sa-true, prod-sa-false, prod-sa-true")
@@ -100,7 +100,7 @@ func main() {
 		config.ServiceName = "identity-service"
 		config.ServiceSecret = "identity-service-secret-abc123def456"
 	}
-	
+
 	// Configure TLS for production scenarios
 	if *scenario == "prod-sa-false" || *scenario == "prod-sa-true" {
 		// In production, TLS is recommended/required
@@ -186,7 +186,8 @@ func main() {
 
 func (ts *TestSuite) testIssueToken(ctx context.Context) {
 	req := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		Claims: map[string]string{
 			"role": "admin",
 		},
@@ -211,7 +212,8 @@ func (ts *TestSuite) testIssueToken(ctx context.Context) {
 func (ts *TestSuite) testRefreshToken(ctx context.Context) {
 	// First issue a token
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	issueResp, err := ts.Client.IssueToken(ctx, issueReq)
 	if err != nil {
@@ -222,6 +224,7 @@ func (ts *TestSuite) testRefreshToken(ctx context.Context) {
 	// Now refresh it
 	req := &authv1.RefreshTokenRequest{
 		RefreshToken: issueResp.RefreshToken,
+		ProjectId:    "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 
 	resp, err := ts.Client.RefreshToken(ctx, req)
@@ -280,6 +283,7 @@ func (ts *TestSuite) testIssueServiceTokenWithoutAuth(ctx context.Context) {
 		SourceService: "identity-service",
 		TargetService: "gateway-service",
 		UserId:        "test-user-123",
+		ProjectId:     "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		Ttl:           3600,
 	}
 
@@ -304,6 +308,7 @@ func (ts *TestSuite) testIssueServiceTokenWithAuth(ctx context.Context) {
 		SourceService: "identity-service",
 		TargetService: "gateway-service",
 		UserId:        "test-user-123",
+		ProjectId:     "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		Ttl:           3600,
 	}
 
@@ -340,6 +345,7 @@ func (ts *TestSuite) testIssueServiceTokenWithInvalidAuth(ctx context.Context) {
 		SourceService: "identity-service",
 		TargetService: "gateway-service",
 		UserId:        "test-user-123",
+		ProjectId:     "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		Ttl:           3600,
 	}
 
@@ -359,7 +365,8 @@ func (ts *TestSuite) testIssueServiceTokenWithInvalidAuth(ctx context.Context) {
 func (ts *TestSuite) testValidateTokenWithoutJWT(ctx context.Context) {
 	// First issue a token
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	issueResp, err := ts.Client.IssueToken(ctx, issueReq)
 	if err != nil {
@@ -376,7 +383,8 @@ func (ts *TestSuite) testValidateTokenWithoutJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.ValidateTokenRequest{
-		Token:         issueResp.AccessToken,
+		Token:          issueResp.AccessToken,
+		ProjectId:      "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		CheckBlacklist: true,
 	}
 
@@ -392,7 +400,8 @@ func (ts *TestSuite) testValidateTokenWithoutJWT(ctx context.Context) {
 func (ts *TestSuite) testValidateTokenWithJWT(ctx context.Context) {
 	// First issue a token to use as JWT
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	jwtTokenResp, err := ts.Client.IssueToken(ctx, issueReq)
 	if err != nil {
@@ -409,7 +418,8 @@ func (ts *TestSuite) testValidateTokenWithJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.ValidateTokenRequest{
-		Token:         jwtTokenResp.AccessToken,
+		Token:          jwtTokenResp.AccessToken,
+		ProjectId:      "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		CheckBlacklist: true,
 	}
 
@@ -430,7 +440,8 @@ func (ts *TestSuite) testValidateTokenWithJWT(ctx context.Context) {
 func (ts *TestSuite) testParseTokenWithJWT(ctx context.Context) {
 	// Issue a token to use as JWT
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	jwtTokenResp, err := ts.Client.IssueToken(ctx, issueReq)
 	if err != nil {
@@ -447,7 +458,8 @@ func (ts *TestSuite) testParseTokenWithJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.ParseTokenRequest{
-		Token: jwtTokenResp.AccessToken,
+		Token:     jwtTokenResp.AccessToken,
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 
 	resp, err := cl.ParseToken(ctx, req)
@@ -467,7 +479,8 @@ func (ts *TestSuite) testParseTokenWithJWT(ctx context.Context) {
 func (ts *TestSuite) testExtractClaimsWithJWT(ctx context.Context) {
 	// Issue a token to use as JWT
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		Claims: map[string]string{
 			"role": "admin",
 		},
@@ -488,6 +501,7 @@ func (ts *TestSuite) testExtractClaimsWithJWT(ctx context.Context) {
 
 	req := &authv1.ExtractClaimsRequest{
 		Token:     jwtTokenResp.AccessToken,
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		ClaimKeys: []string{"user_id", "role"},
 	}
 
@@ -508,7 +522,8 @@ func (ts *TestSuite) testExtractClaimsWithJWT(ctx context.Context) {
 func (ts *TestSuite) testRevokeTokenWithJWT(ctx context.Context) {
 	// Issue a token to use as JWT
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	jwtTokenResp, err := ts.Client.IssueToken(ctx, issueReq)
 	if err != nil {
@@ -525,8 +540,9 @@ func (ts *TestSuite) testRevokeTokenWithJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.RevokeTokenRequest{
-		Token: jwtTokenResp.AccessToken,
-		Ttl:   3600,
+		Token:     jwtTokenResp.AccessToken,
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
+		Ttl:       3600,
 	}
 
 	resp, err := cl.RevokeToken(ctx, req)
@@ -546,7 +562,8 @@ func (ts *TestSuite) testRevokeTokenWithJWT(ctx context.Context) {
 func (ts *TestSuite) testValidateBatchWithJWT(ctx context.Context) {
 	// Issue tokens to validate
 	issueReq1 := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	token1Resp, err := ts.Client.IssueToken(ctx, issueReq1)
 	if err != nil {
@@ -555,7 +572,8 @@ func (ts *TestSuite) testValidateBatchWithJWT(ctx context.Context) {
 	}
 
 	issueReq2 := &authv1.IssueTokenRequest{
-		UserId: "test-user-456",
+		UserId:    "test-user-456",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	token2Resp, err := ts.Client.IssueToken(ctx, issueReq2)
 	if err != nil {
@@ -572,7 +590,7 @@ func (ts *TestSuite) testValidateBatchWithJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.ValidateBatchRequest{
-		Tokens:        []string{token1Resp.AccessToken, token2Resp.AccessToken},
+		Tokens:         []string{token1Resp.AccessToken, token2Resp.AccessToken},
 		CheckBlacklist: true,
 	}
 
@@ -593,7 +611,8 @@ func (ts *TestSuite) testValidateBatchWithJWT(ctx context.Context) {
 func (ts *TestSuite) testCreateAPIKeyWithJWT(ctx context.Context) {
 	// Issue a token to use as JWT
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	jwtTokenResp, err := ts.Client.IssueToken(ctx, issueReq)
 	if err != nil {
@@ -667,7 +686,7 @@ func (ts *TestSuite) testValidateAPIKeyWithJWT(ctx context.Context) {
 
 	// Now validate it
 	validateReq := &authv1.ValidateAPIKeyRequest{
-		ApiKey:        apiKeyResp.ApiKey,
+		ApiKey:         apiKeyResp.ApiKey,
 		RequiredScopes: []string{"read"},
 	}
 
@@ -688,7 +707,8 @@ func (ts *TestSuite) testValidateAPIKeyWithJWT(ctx context.Context) {
 func (ts *TestSuite) testListAPIKeysWithJWT(ctx context.Context) {
 	// Issue a token to use as JWT
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "test-user-123",
+		UserId:    "test-user-123",
+		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 	jwtTokenResp, err := ts.Client.IssueToken(ctx, issueReq)
 	if err != nil {
@@ -735,6 +755,7 @@ func (ts *TestSuite) testErrorHandling(ctx context.Context) {
 
 	req := &authv1.IssueServiceTokenRequest{
 		SourceService: "identity-service",
+		ProjectId:     "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 
 	_, err = cl.IssueServiceToken(ctx, req)
@@ -748,4 +769,3 @@ func (ts *TestSuite) testErrorHandling(ctx context.Context) {
 		ts.AddResult("Error Handling", false, nil, "Should have failed but succeeded")
 	}
 }
-

@@ -36,7 +36,8 @@ func main() {
     
     // Выдаем токен
     resp, err := cl.IssueToken(context.Background(), &authv1.IssueTokenRequest{
-        UserId: "user-123",
+        UserId:    "user-123",
+        ProjectId: "your-project-id", // Required (v0.9.3+)
     })
     if err != nil {
         log.Fatal(err)
@@ -381,9 +382,11 @@ config.ProjectID = "default-project-id"
 cl, _ := client.NewClient(config)
 
 // Использование дефолтного проекта
+// Note: For v0.9.3+, it's recommended to always provide ProjectId in payload
+// If ProjectId is empty, default-project-id from config.ProjectID will be used in metadata
 resp, _ := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
-    UserId: "user-123",
-    // ProjectId не указан, используется из конфигурации
+    UserId:    "user-123",
+    ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 })
 
 // Использование другого проекта
