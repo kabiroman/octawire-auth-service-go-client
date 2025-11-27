@@ -13,11 +13,11 @@ import (
 
 // Client представляет клиент для Auth Service
 type Client struct {
-	conn              *grpc.ClientConn
-	jwtClient         authv1.JWTServiceClient
-	apiKeyClient      authv1.APIKeyServiceClient
-	keyCache          *KeyCache
-	config            *ClientConfig
+	conn         *grpc.ClientConn
+	jwtClient    authv1.JWTServiceClient
+	apiKeyClient authv1.APIKeyServiceClient
+	keyCache     *KeyCache
+	config       *ClientConfig
 }
 
 // NewClient создает новый клиент и устанавливает соединение с сервером
@@ -52,14 +52,14 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		// Улучшаем сообщение об ошибке подключения
 		wrappedErr := WrapError(err)
 		errStr := err.Error()
-		
+
 		// Добавляем полезную информацию о конфигурации TLS
 		if config.TLS != nil && !config.TLS.Enabled {
 			if strings.Contains(strings.ToLower(errStr), "tls") || strings.Contains(strings.ToLower(errStr), "certificate") {
 				return nil, fmt.Errorf("%w: server may require TLS connection (check TLS configuration)", wrappedErr)
 			}
 		}
-		
+
 		return nil, wrappedErr
 	}
 
@@ -105,11 +105,11 @@ func (c *Client) withContext(ctx context.Context, projectID string) (context.Con
 func (c *Client) withMetadata(ctx context.Context, projectID string) context.Context {
 	md := metadata.New(nil)
 
-	// Добавляем project_id, если указан
+	// Добавляем default-project-id в metadata (v0.9.3+)
 	if projectID != "" {
-		md.Set("project-id", projectID)
+		md.Set("default-project-id", projectID)
 	} else if c.config.ProjectID != "" {
-		md.Set("project-id", c.config.ProjectID)
+		md.Set("default-project-id", c.config.ProjectID)
 	}
 
 	// Добавляем API ключ, если указан
@@ -143,7 +143,11 @@ func (c *Client) getProjectID(projectID string) string {
 
 // IssueToken выдает новый JWT токен (access + refresh)
 func (c *Client) IssueToken(ctx context.Context, req *authv1.IssueTokenRequest) (*authv1.IssueTokenResponse, error) {
+	// Set ProjectId from config if not provided in request (v0.9.3+)
 	projectID := c.getProjectID(req.ProjectId)
+	if req.ProjectId == "" && projectID != "" {
+		req.ProjectId = projectID
+	}
 	ctx, cancel := c.withContext(ctx, projectID)
 	defer cancel()
 
@@ -192,7 +196,8 @@ func (c *Client) IssueServiceToken(ctx context.Context, req *authv1.IssueService
 // ValidateToken валидирует токен
 // Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ValidateToken(ctx context.Context, req *authv1.ValidateTokenRequest) (*authv1.ValidateTokenResponse, error) {
-	ctx, cancel := c.withContext(ctx, "")
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
 	defer cancel()
 
 	var resp *authv1.ValidateTokenResponse
@@ -211,7 +216,8 @@ func (c *Client) ValidateToken(ctx context.Context, req *authv1.ValidateTokenReq
 
 // RefreshToken обновляет токен
 func (c *Client) RefreshToken(ctx context.Context, req *authv1.RefreshTokenRequest) (*authv1.RefreshTokenResponse, error) {
-	ctx, cancel := c.withContext(ctx, "")
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
 	defer cancel()
 
 	var resp *authv1.RefreshTokenResponse
@@ -231,7 +237,8 @@ func (c *Client) RefreshToken(ctx context.Context, req *authv1.RefreshTokenReque
 // RevokeToken отзывает токен
 // Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) RevokeToken(ctx context.Context, req *authv1.RevokeTokenRequest) (*authv1.RevokeTokenResponse, error) {
-	ctx, cancel := c.withContext(ctx, "")
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
 	defer cancel()
 
 	var resp *authv1.RevokeTokenResponse
@@ -251,7 +258,8 @@ func (c *Client) RevokeToken(ctx context.Context, req *authv1.RevokeTokenRequest
 // ParseToken парсит токен без валидации
 // Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ParseToken(ctx context.Context, req *authv1.ParseTokenRequest) (*authv1.ParseTokenResponse, error) {
-	ctx, cancel := c.withContext(ctx, "")
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
 	defer cancel()
 
 	var resp *authv1.ParseTokenResponse
@@ -271,7 +279,8 @@ func (c *Client) ParseToken(ctx context.Context, req *authv1.ParseTokenRequest) 
 // ExtractClaims извлекает claims из токена
 // Требует JWT аутентификации: JWTToken должен быть установлен в конфигурации
 func (c *Client) ExtractClaims(ctx context.Context, req *authv1.ExtractClaimsRequest) (*authv1.ExtractClaimsResponse, error) {
-	ctx, cancel := c.withContext(ctx, "")
+	projectID := c.getProjectID(req.ProjectId)
+	ctx, cancel := c.withContext(ctx, projectID)
 	defer cancel()
 
 	var resp *authv1.ExtractClaimsResponse
@@ -470,4 +479,3 @@ func (c *Client) ListAPIKeys(ctx context.Context, req *authv1.ListAPIKeysRequest
 func (c *Client) GetKeyCache() *KeyCache {
 	return c.keyCache
 }
-

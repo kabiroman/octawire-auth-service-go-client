@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
+	"github.com/stretchr/testify/assert"
 )
 
 var (
 	runIntegrationTests = flag.Bool("integration", false, "Run integration tests that require a running service")
 	serviceAddress      = flag.String("service-address", "localhost:50051", "Address of the auth-service for integration tests")
-	testAPIKey          = flag.String("api-key", "DRXpYsOsCNNa94SetlMjnUCvjWbDHW5OrnNlTee_cLc=", "API key for authentication")
+	testAPIKey          = flag.String("api-key", "auth-service-development-key-xyz789uvw456", "API key for authentication")
 )
 
 // detectTLSRequirement attempts to connect without TLS first, then with TLS if needed
@@ -38,32 +38,38 @@ func detectTLSRequirement(address string) (bool, error) {
 		}
 	}
 
-	// If connection failed, check if it's a TLS-related error
-	errStr := strings.ToLower(err.Error())
-	if err != nil && (strings.Contains(errStr, "tls") || strings.Contains(errStr, "certificate") || 
-		strings.Contains(errStr, "first record does not look like a tls handshake")) {
-		// Try with TLS
-		configTLS := DefaultConfig(address)
-		configTLS.TLS = &TLSConfig{
-			Enabled:            true,
-			InsecureSkipVerify: true,
-		}
-		clientTLS, err2 := NewClient(configTLS)
+	// If connection failed, try with TLS (might be TLS-required server)
+	// Try with TLS
+	configTLS := DefaultConfig(address)
+	configTLS.TLS = &TLSConfig{
+		Enabled:            true,
+		InsecureSkipVerify: true,
+	}
+	clientTLS, err2 := NewClient(configTLS)
+	if err2 == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, err2 = clientTLS.HealthCheck(ctx)
+		clientTLS.Close()
 		if err2 == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			_, err2 = clientTLS.HealthCheck(ctx)
-			clientTLS.Close()
-			if err2 == nil {
-				return true, nil // TLS is required
-			}
+			return true, nil // TLS is required
+		}
+	}
+
+	// Check if the error indicates TLS requirement
+	if err != nil {
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "tls") || strings.Contains(errStr, "certificate") ||
+			strings.Contains(errStr, "first record does not look like a tls handshake") ||
+			strings.Contains(errStr, "connection reset") {
+			// Likely TLS required, but connection failed - return true anyway
+			return true, nil
 		}
 	}
 
 	// If we can't determine, assume no TLS (most common case)
 	return false, nil
 }
-
 
 // TestAllScenariosIntegration tests all configuration scenarios:
 // - DEV + service_auth=false
@@ -115,48 +121,48 @@ func TestAllScenariosIntegration(t *testing.T) {
 	t.Logf("Service detected: TLS required = %v, API key = %s", tlsRequired, *testAPIKey)
 
 	scenarios := []struct {
-		name         string
-		scenario     string
-		serviceAuth  bool
-		production   bool
-		expectTLS    bool
-		serviceName  string
+		name          string
+		scenario      string
+		serviceAuth   bool
+		production    bool
+		expectTLS     bool
+		serviceName   string
 		serviceSecret string
 	}{
 		{
-			name:         "DEV service_auth=false",
-			scenario:     "dev-sa-false",
-			serviceAuth:  false,
-			production:   false,
-			expectTLS:    false,
-			serviceName:  "",
+			name:          "DEV service_auth=false",
+			scenario:      "dev-sa-false",
+			serviceAuth:   false,
+			production:    false,
+			expectTLS:     false,
+			serviceName:   "",
 			serviceSecret: "",
 		},
 		{
-			name:         "DEV service_auth=true",
-			scenario:     "dev-sa-true",
-			serviceAuth:  true,
-			production:   false,
-			expectTLS:    false,
-			serviceName:  "identity-service",
+			name:          "DEV service_auth=true",
+			scenario:      "dev-sa-true",
+			serviceAuth:   true,
+			production:    false,
+			expectTLS:     false,
+			serviceName:   "identity-service",
 			serviceSecret: "identity-service-secret-abc123def456",
 		},
 		{
-			name:         "PROD service_auth=false",
-			scenario:     "prod-sa-false",
-			serviceAuth:  false,
-			production:   true,
-			expectTLS:    false, // Will be set based on actual server configuration
-			serviceName:  "",
+			name:          "PROD service_auth=false",
+			scenario:      "prod-sa-false",
+			serviceAuth:   false,
+			production:    true,
+			expectTLS:     false, // Will be set based on actual server configuration
+			serviceName:   "",
 			serviceSecret: "",
 		},
 		{
-			name:         "PROD service_auth=true",
-			scenario:     "prod-sa-true",
-			serviceAuth:  true,
-			production:   true,
-			expectTLS:    false, // Will be set based on actual server configuration
-			serviceName:  "identity-service",
+			name:          "PROD service_auth=true",
+			scenario:      "prod-sa-true",
+			serviceAuth:   true,
+			production:    true,
+			expectTLS:     false, // Will be set based on actual server configuration
+			serviceName:   "identity-service",
 			serviceSecret: "identity-service-secret-abc123def456",
 		},
 	}
@@ -166,7 +172,7 @@ func TestAllScenariosIntegration(t *testing.T) {
 			// Create client configuration
 			config := DefaultConfig(*serviceAddress)
 			config.APIKey = *testAPIKey
-			config.ProjectID = "default-project-id"
+			// Don't set ProjectID - use empty string for legacy mode (server uses jwt.audience as project_id)
 
 			// Configure service authentication
 			if scenario.serviceAuth {
@@ -178,7 +184,8 @@ func TestAllScenariosIntegration(t *testing.T) {
 			if tlsRequired {
 				config.TLS = &TLSConfig{
 					Enabled:            true,
-					InsecureSkipVerify: true, // For testing only
+					InsecureSkipVerify: true, // For testing only - skip certificate verification
+					// CAFile: "../../../config/tls/dev-ca.crt", // Optional: use CA file for verification
 				}
 			} else {
 				config.TLS = &TLSConfig{
@@ -189,9 +196,9 @@ func TestAllScenariosIntegration(t *testing.T) {
 			// Create client
 			cl, err := NewClient(config)
 			if err != nil {
-			// Check if it's an API key authentication error
-			errStr := strings.ToLower(err.Error())
-			if strings.Contains(errStr, "unauthenticated") || strings.Contains(errStr, "permission denied") {
+				// Check if it's an API key authentication error
+				errStr := strings.ToLower(err.Error())
+				if strings.Contains(errStr, "unauthenticated") || strings.Contains(errStr, "permission denied") {
 					t.Fatalf("Failed to create client for scenario %s: %v\nHint: Check if API key '%s' is valid in server configuration", scenario.name, err, *testAPIKey)
 				}
 				t.Fatalf("Failed to create client for scenario %s: %v", scenario.name, err)
@@ -214,7 +221,8 @@ func TestAllScenariosIntegration(t *testing.T) {
 			// Test 2: IssueToken (public method, should always work)
 			t.Run("IssueToken", func(t *testing.T) {
 				req := &authv1.IssueTokenRequest{
-					UserId: "test-user-123",
+					UserId:    "test-user-123",
+					ProjectId: "", // Empty for legacy mode (server uses jwt.audience as project_id)
 				}
 				resp, err := cl.IssueToken(ctx, req)
 				if err != nil {
@@ -236,6 +244,7 @@ func TestAllScenariosIntegration(t *testing.T) {
 					SourceService: "identity-service",
 					TargetService: "gateway-service",
 					UserId:        "test-user-123",
+					ProjectId:     "", // Empty for legacy mode (server uses jwt.audience as project_id)
 					Ttl:           3600,
 				}
 
@@ -244,8 +253,8 @@ func TestAllScenariosIntegration(t *testing.T) {
 				if scenario.serviceAuth {
 					// Should succeed with service auth
 					if err != nil {
-					errStr := strings.ToLower(err.Error())
-					if strings.Contains(errStr, "service authentication") {
+						errStr := strings.ToLower(err.Error())
+						if strings.Contains(errStr, "service authentication") {
 							t.Errorf("IssueServiceToken failed with service auth configured: %v\nHint: Check if service_name '%s' and service_secret are valid in server configuration", err, scenario.serviceName)
 						} else {
 							t.Errorf("IssueServiceToken should succeed with service auth, got error: %v", err)
@@ -264,8 +273,8 @@ func TestAllScenariosIntegration(t *testing.T) {
 					if !errors.As(err, &clientErr) {
 						// May also be ErrServiceAuthFailed
 						if !errors.Is(err, ErrServiceAuthFailed) {
-						// This is expected - client should reject before making request
-						if !strings.Contains(strings.ToLower(err.Error()), "service authentication required") {
+							// This is expected - client should reject before making request
+							if !strings.Contains(strings.ToLower(err.Error()), "service authentication required") {
 								t.Errorf("Expected service authentication error, got: %v", err)
 							}
 						}
@@ -277,7 +286,8 @@ func TestAllScenariosIntegration(t *testing.T) {
 			t.Run("ValidateToken", func(t *testing.T) {
 				// First issue a token
 				issueReq := &authv1.IssueTokenRequest{
-					UserId: "test-user-123",
+					UserId:    "test-user-123",
+					ProjectId: "", // Empty for legacy mode (server uses jwt.audience as project_id)
 				}
 				issueResp, err := cl.IssueToken(ctx, issueReq)
 				if err != nil {
@@ -287,7 +297,7 @@ func TestAllScenariosIntegration(t *testing.T) {
 				// Create client with JWT token
 				jwtConfig := DefaultConfig(*serviceAddress)
 				jwtConfig.APIKey = *testAPIKey
-				jwtConfig.ProjectID = "default-project-id"
+				// Don't set ProjectID - use empty string for legacy mode
 				jwtConfig.JWTToken = issueResp.AccessToken
 
 				// Use same TLS configuration as main client
@@ -310,7 +320,8 @@ func TestAllScenariosIntegration(t *testing.T) {
 
 				// Validate token
 				validateReq := &authv1.ValidateTokenRequest{
-					Token:         issueResp.AccessToken,
+					Token:          issueResp.AccessToken,
+					ProjectId:      "", // Empty for legacy mode (server extracts from token claims)
 					CheckBlacklist: true,
 				}
 
@@ -325,24 +336,12 @@ func TestAllScenariosIntegration(t *testing.T) {
 			// Test 5: GetPublicKey (public method, should always work)
 			// Handles both multi-project and legacy single-project modes
 			t.Run("GetPublicKey", func(t *testing.T) {
-				// Try with project_id first
+				// Use empty project_id for legacy mode
 				req := &authv1.GetPublicKeyRequest{
-					ProjectId: "default-project-id",
+					ProjectId: "", // Empty for legacy mode (server uses jwt.audience as project_id)
 				}
 				resp, err := cl.GetPublicKey(ctx, req)
-				
-				// If fails with "project not found", retry without project_id (legacy mode)
-				if err != nil {
-					errStr := strings.ToLower(err.Error())
-					if strings.Contains(errStr, "project not found") {
-						t.Logf("Project not found, retrying without project_id (legacy mode)")
-						req = &authv1.GetPublicKeyRequest{
-							ProjectId: "", // Empty for legacy single-project mode
-						}
-						resp, err = cl.GetPublicKey(ctx, req)
-					}
-				}
-				
+
 				if err != nil {
 					t.Errorf("GetPublicKey failed: %v", err)
 					return
@@ -353,4 +352,3 @@ func TestAllScenariosIntegration(t *testing.T) {
 		})
 	}
 }
-

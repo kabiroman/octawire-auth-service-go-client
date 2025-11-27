@@ -16,10 +16,10 @@ func main() {
 
 	// Настраиваем TLS
 	config.TLS = &client.TLSConfig{
-		Enabled:  true,
-		CAFile:   "/path/to/ca.crt",           // Путь к CA сертификату
-		CertFile: "/path/to/client.crt",      // Путь к клиентскому сертификату (для mTLS)
-		KeyFile:  "/path/to/client.key",      // Путь к приватному ключу клиента (для mTLS)
+		Enabled:    true,
+		CAFile:     "/path/to/ca.crt",          // Путь к CA сертификату
+		CertFile:   "/path/to/client.crt",      // Путь к клиентскому сертификату (для mTLS)
+		KeyFile:    "/path/to/client.key",      // Путь к приватному ключу клиента (для mTLS)
 		ServerName: "auth-service.example.com", // Имя сервера для SNI
 	}
 
@@ -38,7 +38,8 @@ func main() {
 	// Пример использования с TLS
 	fmt.Println("=== IssueToken with TLS ===")
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "user-123",
+		UserId:    "user-123",
+		ProjectId: "default-project-id", // Required (v0.9.3+)
 	}
 
 	issueResp, err := cl.IssueToken(ctx, issueReq)
@@ -59,4 +60,3 @@ func main() {
 	fmt.Printf("Service is healthy: %v\n", healthResp.Healthy)
 	fmt.Printf("Version: %s\n", healthResp.Version)
 }
-

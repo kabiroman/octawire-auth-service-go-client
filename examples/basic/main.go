@@ -27,7 +27,8 @@ func main() {
 	// Пример 1: Выдача токена
 	fmt.Println("=== IssueToken ===")
 	issueReq := &authv1.IssueTokenRequest{
-		UserId: "user-123",
+		UserId:    "user-123",
+		ProjectId: "default-project-id", // Required (v0.9.3+)
 		Claims: map[string]string{
 			"role": "admin",
 		},
@@ -60,7 +61,8 @@ func main() {
 	defer jwtClient.Close()
 
 	validateReq := &authv1.ValidateTokenRequest{
-		Token:         issueResp.AccessToken,
+		Token:          issueResp.AccessToken,
+		ProjectId:      "default-project-id", // Required (v0.9.3+)
 		CheckBlacklist: true,
 	}
 
@@ -84,6 +86,7 @@ func main() {
 	fmt.Println("\n=== RefreshToken ===")
 	refreshReq := &authv1.RefreshTokenRequest{
 		RefreshToken: issueResp.RefreshToken,
+		ProjectId:    "default-project-id", // Required (v0.9.3+)
 	}
 
 	refreshResp, err := cl.RefreshToken(ctx, refreshReq)
@@ -107,4 +110,3 @@ func main() {
 	fmt.Printf("Version: %s\n", healthResp.Version)
 	fmt.Printf("Uptime: %d seconds\n", healthResp.Uptime)
 }
-

@@ -131,10 +131,11 @@ func main() {
 	}
 	defer clWithDefault.Close()
 
-	// Не указываем ProjectId в запросе, будет использован из конфигурации
+	// Не указываем ProjectId в payload, будет использован default-project-id из metadata (v0.9.3+)
+	// Note: For v0.9.3+, it's recommended to always provide ProjectId in payload
 	issueReqDefault := &authv1.IssueTokenRequest{
 		UserId: "user-789",
-		// ProjectId не указан, будет использован configWithDefault.ProjectID
+		// ProjectId не указан в payload, будет использован default-project-id из metadata (v0.9.3+)
 	}
 
 	issueRespDefault, err := clWithDefault.IssueToken(ctx, issueReqDefault)
@@ -145,4 +146,3 @@ func main() {
 	fmt.Printf("Default Project - Access Token: %s\n", issueRespDefault.AccessToken)
 	fmt.Printf("Default Project - Key ID: %s\n", issueRespDefault.KeyId)
 }
-

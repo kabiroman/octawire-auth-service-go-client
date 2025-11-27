@@ -1,6 +1,6 @@
 # Go Client для Auth Service
 
-Go клиент для работы с Auth Service (v0.9.2) через gRPC.
+Go клиент для работы с Auth Service (v0.9.3) через gRPC.
 
 **Репозиторий:** [https://github.com/kabiroman/octawire-auth-service-go-client](https://github.com/kabiroman/octawire-auth-service-go-client)
 
@@ -113,6 +113,36 @@ config.Timeout = &client.TimeoutConfig{
 }
 ```
 
+## Project ID (v0.9.3+)
+
+`project_id` is now required in payload for all token-related methods. The client automatically sets `default-project-id` in gRPC metadata from `config.ProjectID` if `project_id` is not provided in the request.
+
+**Priority:**
+1. `project_id` in request payload (highest priority)
+2. `default-project-id` in gRPC metadata (from `config.ProjectID`)
+3. Legacy mode (if service has no projects configured)
+
+### Example with project_id in payload:
+
+```go
+resp, err := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
+    UserId: "user-123",
+    ProjectId: "project-id", // Required (v0.9.3+)
+})
+```
+
+### Example with default-project-id in metadata:
+
+```go
+config.ProjectID = "default-project-id" // Set in metadata as default-project-id
+cl, _ := client.NewClient(config)
+
+resp, err := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
+    UserId: "user-123",
+    ProjectId: "", // Empty - will use default-project-id from metadata
+})
+```
+
 ## Использование
 
 ### JWT Service методы
@@ -127,7 +157,7 @@ resp, err := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
     },
     AccessTokenTtl:  3600,
     RefreshTokenTtl: 86400,
-    ProjectId:       "project-id", // Опционально
+    ProjectId:       "project-id", // Required (v0.9.3+)
 })
 ```
 
@@ -143,6 +173,7 @@ cl, _ := client.NewClient(config)
 // Валидация токена
 resp, err := cl.ValidateToken(ctx, &authv1.ValidateTokenRequest{
     Token:         "jwt-token",
+    ProjectId:     "project-id", // Required (v0.9.3+)
     CheckBlacklist: true,
 })
 
@@ -158,6 +189,7 @@ if resp.Valid {
 ```go
 resp, err := cl.RefreshToken(ctx, &authv1.RefreshTokenRequest{
     RefreshToken: "refresh-token",
+    ProjectId:    "project-id", // Required (v0.9.3+)
 })
 ```
 
