@@ -46,14 +46,25 @@ func main() {
 	fmt.Printf("Refresh Token Expires At: %s\n", time.Unix(issueResp.RefreshTokenExpiresAt, 0))
 	fmt.Printf("Key ID: %s\n", issueResp.KeyId)
 
-	// Пример 2: Валидация токена
+	// Пример 2: Валидация токена (требует JWT токен в конфигурации)
 	fmt.Println("\n=== ValidateToken ===")
+	// Создаем клиент с JWT токеном для валидации
+	jwtConfig := client.DefaultConfig("localhost:50051")
+	jwtConfig.ProjectID = "default-project-id"
+	jwtConfig.JWTToken = issueResp.AccessToken // Используем выданный токен как JWT для аутентификации
+
+	jwtClient, err := client.NewClient(jwtConfig)
+	if err != nil {
+		log.Fatalf("Failed to create JWT client: %v", err)
+	}
+	defer jwtClient.Close()
+
 	validateReq := &authv1.ValidateTokenRequest{
 		Token:         issueResp.AccessToken,
 		CheckBlacklist: true,
 	}
 
-	validateResp, err := cl.ValidateToken(ctx, validateReq)
+	validateResp, err := jwtClient.ValidateToken(ctx, validateReq)
 	if err != nil {
 		log.Fatalf("Failed to validate token: %v", err)
 	}

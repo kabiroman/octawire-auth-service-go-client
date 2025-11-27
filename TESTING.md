@@ -279,6 +279,28 @@ The test program outputs results for each test case:
 Summary: 17 passed, 0 failed
 ```
 
+## Integration Tests (Go Test)
+
+The client includes a comprehensive integration test suite (`integration_test.go`) that can be run as part of Go test suite:
+
+```bash
+cd services/auth-service/clients/octawire-auth-service-go-client
+
+# Run integration tests (requires running service)
+go test -v -integration=true -service-address=localhost:50051 -api-key=your-api-key
+
+# Run all tests (unit + integration)
+go test -v -integration=true ./...
+```
+
+The integration test suite:
+- Automatically detects TLS requirements from server configuration
+- Tests all 4 scenarios (DEV/PROD × service_auth true/false)
+- Handles both legacy single-project and multi-project modes
+- Provides helpful error messages for configuration issues
+
+**Note:** Integration tests are skipped by default. Use `-integration=true` flag to enable them.
+
 ## Continuous Integration
 
 For CI/CD pipelines, you can run:

@@ -20,7 +20,7 @@ import (
     "log"
     
     "github.com/kabiroman/octawire-auth-service-go-client"
-    authv1 "github.com/octawire/auth-service/internal/proto"
+    authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
 )
 
 func main() {
@@ -369,12 +369,40 @@ resp, _ := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
 - `examples/tls/main.go` - использование с TLS/mTLS
 - `examples/caching/main.go` - демонстрация кэширования ключей
 - `examples/multiproject/main.go` - работа с несколькими проектами
+- `examples/test-scenarios/main.go` - тестирование всех сценариев конфигурации
 
 ## Тестирование
+
+### Юнит-тесты
 
 ```bash
 go test ./...
 ```
+
+### Интеграционные тесты
+
+Интеграционные тесты проверяют работу клиента со всеми комбинациями конфигураций:
+- DEV/PROD окружения
+- service_auth включен/выключен
+
+Требуется запущенный экземпляр auth-service:
+
+```bash
+# Запустить интеграционные тесты
+go test -v -integration=true [-service-address=localhost:50051] [-api-key=your-api-key]
+
+# Или использовать пример test-scenarios
+cd examples/test-scenarios
+go run main.go -scenario dev-sa-true
+```
+
+Доступные сценарии:
+- `dev-sa-false` - DEV с service_auth отключен
+- `dev-sa-true` - DEV с service_auth включен
+- `prod-sa-false` - PROD с service_auth отключен
+- `prod-sa-true` - PROD с service_auth включен
+
+Интеграционные тесты автоматически определяют требования TLS и адаптируются к конфигурации сервера.
 
 ## Репозиторий
 
