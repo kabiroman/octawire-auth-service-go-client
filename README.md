@@ -1,6 +1,6 @@
 # Go Client для Auth Service
 
-Go клиент для работы с Auth Service (v0.9.3) через gRPC.
+Go клиент для работы с Auth Service (v1.0) через gRPC.
 
 **Репозиторий:** [https://github.com/kabiroman/octawire-auth-service-go-client](https://github.com/kabiroman/octawire-auth-service-go-client)
 
@@ -37,7 +37,7 @@ func main() {
     // Выдаем токен
     resp, err := cl.IssueToken(context.Background(), &authv1.IssueTokenRequest{
         UserId:    "user-123",
-        ProjectId: "your-project-id", // Required (v0.9.3+)
+        ProjectId: "your-project-id", // Required (v1.0+)
     })
     if err != nil {
         log.Fatal(err)
@@ -57,22 +57,48 @@ config.ProjectID = "default-project-id"
 config.APIKey = "your-api-key" // Опционально
 ```
 
+## Authentication Types (v1.0+)
+
+### Public Methods
+Следующие методы не требуют аутентификации:
+- `IssueToken`
+- `RefreshToken`
+- `GetPublicKey`
+- `HealthCheck`
+
+### Optional Service Authentication (v1.0+)
+Следующие методы поддерживают опциональную service authentication:
+- `IssueServiceToken` - service auth опциональна (рекомендуется для production)
+- `ValidateToken` - service auth опциональна, или public (без аутентификации, особенно для localhost)
+- `ParseToken` - service auth опциональна, или public (без аутентификации, особенно для localhost)
+- `ExtractClaims` - service auth опциональна, или public (без аутентификации, особенно для localhost)
+- `ValidateBatch` - service auth опциональна, или public (без аутентификации, особенно для localhost)
+
+### JWT Authentication Required
+Следующие методы требуют JWT токен:
+- `RevokeToken` - требует JWT (user revoking their own token)
+- Все методы `APIKeyService.*` - требуют JWT (key management operations)
+
 ### Service Authentication
 
-Для использования `IssueServiceToken` требуется service authentication:
+Для методов с опциональной service authentication (IssueServiceToken, ValidateToken, ParseToken, ExtractClaims, ValidateBatch):
 
 ```go
 config.ServiceName = "identity-service"
 config.ServiceSecret = "identity-service-secret-abc123"
 ```
 
+**Важно (v1.0+)**: Service authentication теперь опциональна для этих методов. Если `service_auth.enabled = true` на сервере, service authentication доступна но не обязательна (рекомендуется для production).
+
 ### JWT Authentication
 
-Для методов, требующих JWT аутентификации (ValidateToken, ParseToken, RevokeToken, ValidateBatch, ExtractClaims, и все методы APIKeyService), требуется JWT токен:
+Для методов, требующих JWT аутентификации (RevokeToken и все методы APIKeyService), требуется JWT токен:
 
 ```go
 config.JWTToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
+
+Для методов с опциональной аутентификацией (ValidateToken, ParseToken, ExtractClaims, ValidateBatch) можно использовать service auth или работать без аутентификации (особенно для localhost или если service_auth.enabled = false).
 
 ### TLS/mTLS конфигурация
 
@@ -114,13 +140,13 @@ config.Timeout = &client.TimeoutConfig{
 }
 ```
 
-## Project ID (v0.9.3+)
+## Project ID (v1.0+)
 
-`project_id` is now required in payload for all token-related methods. The client automatically sets `default-project-id` in gRPC metadata from `config.ProjectID` if `project_id` is not provided in the request.
+`project_id` может быть указан в payload запроса или передается через gRPC metadata. Клиент автоматически устанавливает `project-id` в gRPC metadata из `config.ProjectID`, если `project_id` не указан в запросе.
 
 **Priority:**
 1. `project_id` in request payload (highest priority)
-2. `default-project-id` in gRPC metadata (from `config.ProjectID`)
+2. `project-id` in gRPC metadata (from `config.ProjectID`)
 3. Legacy mode (if service has no projects configured)
 
 ### Example with project_id in payload:
@@ -128,19 +154,19 @@ config.Timeout = &client.TimeoutConfig{
 ```go
 resp, err := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
     UserId: "user-123",
-    ProjectId: "project-id", // Required (v0.9.3+)
+    ProjectId: "project-id", // Required (v1.0+)
 })
 ```
 
-### Example with default-project-id in metadata:
+### Example with project-id in metadata:
 
 ```go
-config.ProjectID = "default-project-id" // Set in metadata as default-project-id
+config.ProjectID = "default-project-id" // Set in metadata as project-id
 cl, _ := client.NewClient(config)
 
 resp, err := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
     UserId: "user-123",
-    ProjectId: "", // Empty - will use default-project-id from metadata
+    ProjectId: "", // Empty - will use project-id from metadata
 })
 ```
 
@@ -158,23 +184,27 @@ resp, err := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
     },
     AccessTokenTtl:  3600,
     RefreshTokenTtl: 86400,
-    ProjectId:       "project-id", // Required (v0.9.3+)
+    ProjectId:       "project-id", // Required (v1.0+)
 })
 ```
 
 #### ValidateToken - Валидация токена
 
-**Требует JWT аутентификации** (JWTToken должен быть установлен в конфигурации):
+**Authentication опциональна (v1.0+)** - можно использовать service auth или работать без аутентификации (особенно для localhost):
 
 ```go
-// Настройка JWT токена
-config.JWTToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+// Вариант 1: С service authentication (рекомендуется для production)
+config.ServiceName = "gateway-service"
+config.ServiceSecret = "gateway-service-secret"
+cl, _ := client.NewClient(config)
+
+// Вариант 2: Без аутентификации (для localhost или если service_auth.enabled = false)
 cl, _ := client.NewClient(config)
 
 // Валидация токена
+// Токен в поле Token - это токен, который валидируется, а не токен для аутентификации запроса
 resp, err := cl.ValidateToken(ctx, &authv1.ValidateTokenRequest{
-    Token:         "jwt-token",
-    ProjectId:     "project-id", // Required (v0.9.3+)
+    Token:         "jwt-token-to-validate",
     CheckBlacklist: true,
 })
 
@@ -207,10 +237,10 @@ resp, err := cl.GetPublicKey(ctx, &authv1.GetPublicKeyRequest{
 
 #### IssueServiceToken - Выдача межсервисного токена
 
-**Требует service authentication** (ServiceName и ServiceSecret должны быть установлены в конфигурации):
+**Service authentication опциональна (v1.0+)**:
 
 ```go
-// Настройка service authentication
+// Настройка service authentication (опционально, рекомендуется для production)
 config.ServiceName = "identity-service"
 config.ServiceSecret = "identity-service-secret-abc123"
 cl, _ := client.NewClient(config)
@@ -228,12 +258,14 @@ resp, err := cl.IssueServiceToken(ctx, &authv1.IssueServiceTokenRequest{
 })
 ```
 
+**Примечание (v1.0+)**: Service authentication теперь опциональна. Если `service_auth.enabled = true` на сервере, service authentication доступна но не обязательна (рекомендуется для production).
+
 #### Другие методы
 
 - `RevokeToken` - отзыв токена (требует JWT аутентификации)
-- `ParseToken` - парсинг токена без валидации (требует JWT аутентификации)
-- `ExtractClaims` - извлечение claims из токена (требует JWT аутентификации)
-- `ValidateBatch` - пакетная валидация токенов (требует JWT аутентификации)
+- `ParseToken` - парсинг токена без валидации (authentication опциональна, v1.0+)
+- `ExtractClaims` - извлечение claims из токена (authentication опциональна, v1.0+)
+- `ValidateBatch` - пакетная валидация токенов (authentication опциональна, v1.0+)
 - `HealthCheck` - проверка здоровья сервиса (публичный метод)
 
 ### API Key Service методы
@@ -382,11 +414,11 @@ config.ProjectID = "default-project-id"
 cl, _ := client.NewClient(config)
 
 // Использование дефолтного проекта
-// Note: For v0.9.3+, it's recommended to always provide ProjectId in payload
-// If ProjectId is empty, default-project-id from config.ProjectID will be used in metadata
+// Note: For v1.0+, it's recommended to always provide ProjectId in payload
+// If ProjectId is empty, project-id from config.ProjectID will be used in metadata
 resp, _ := cl.IssueToken(ctx, &authv1.IssueTokenRequest{
     UserId:    "user-123",
-    ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
+    ProjectId: "", // Empty - will use project-id from metadata (v1.0+)
 })
 
 // Использование другого проекта

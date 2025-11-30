@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
@@ -182,9 +183,9 @@ func TestErrorHandling(t *testing.T) {
 // TestWrapError тестирует обертку ошибок
 func TestWrapError(t *testing.T) {
 	tests := []struct {
-		name     string
-		err      error
-		checkFn  func(error) bool
+		name    string
+		err     error
+		checkFn func(error) bool
 	}{
 		{
 			name:    "Unavailable error",
@@ -411,13 +412,14 @@ func TestIssueServiceTokenWithServiceAuth(t *testing.T) {
 	mockJWT.AssertExpectations(t)
 }
 
-// TestIssueServiceTokenWithoutServiceAuth тестирует IssueServiceToken без service authentication
+// TestIssueServiceTokenWithoutServiceAuth тестирует IssueServiceToken без service authentication (v1.0+)
+// Service auth теперь опциональна
 func TestIssueServiceTokenWithoutServiceAuth(t *testing.T) {
 	mockJWT := new(MockJWTServiceClient)
 	mockAPIKey := new(MockAPIKeyServiceClient)
 
 	config := DefaultConfig("localhost:50051")
-	// ServiceName и ServiceSecret не установлены
+	// ServiceName и ServiceSecret не установлены - это допустимо (v1.0+)
 
 	cl := &Client{
 		jwtClient:    mockJWT,
@@ -430,21 +432,30 @@ func TestIssueServiceTokenWithoutServiceAuth(t *testing.T) {
 		SourceService: "identity-service",
 	}
 
-	_, err := cl.IssueServiceToken(context.Background(), req)
-	assert.Error(t, err)
-	var clientErr *ClientError
-	assert.True(t, errors.As(err, &clientErr))
-	assert.Contains(t, clientErr.Message, "service authentication required")
-	mockJWT.AssertNotCalled(t, "IssueServiceToken")
+	expectedResp := &authv1.IssueTokenResponse{
+		AccessToken:  "service-token",
+		RefreshToken: "",
+		KeyId:        "key-1",
+	}
+
+	mockJWT.On("IssueServiceToken", mock.Anything, req).Return(expectedResp, nil)
+
+	resp, err := cl.IssueServiceToken(context.Background(), req)
+	assert.NoError(t, err) // Не должно быть ошибки - service auth опциональна (v1.0+)
+	assert.Equal(t, expectedResp.AccessToken, resp.AccessToken)
+	mockJWT.AssertExpectations(t)
 }
 
 // TestValidateTokenWithJWT тестирует ValidateToken с JWT token в конфигурации
+// В v1.0+ JWT токен не должен добавляться для ValidateToken (опциональная аутентификация)
+// Но тест оставляем для обратной совместимости конфигурации
 func TestValidateTokenWithJWT(t *testing.T) {
 	mockJWT := new(MockJWTServiceClient)
 	mockAPIKey := new(MockAPIKeyServiceClient)
 
 	config := DefaultConfig("localhost:50051")
-	config.JWTToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+	// JWT токен в конфиге не должен влиять на ValidateToken в v1.0+
+	// config.JWTToken не устанавливаем - ValidateToken использует опциональную service auth или public
 
 	cl := &Client{
 		jwtClient:    mockJWT,
@@ -454,7 +465,7 @@ func TestValidateTokenWithJWT(t *testing.T) {
 	}
 
 	req := &authv1.ValidateTokenRequest{
-		Token:         "token-to-validate",
+		Token:          "token-to-validate",
 		CheckBlacklist: true,
 	}
 
@@ -473,24 +484,59 @@ func TestValidateTokenWithJWT(t *testing.T) {
 	mockJWT.AssertExpectations(t)
 }
 
+// TestValidateTokenWithoutAuth тестирует ValidateToken без аутентификации (v1.0+)
+func TestValidateTokenWithoutAuth(t *testing.T) {
+	mockJWT := new(MockJWTServiceClient)
+	mockAPIKey := new(MockAPIKeyServiceClient)
+
+	config := DefaultConfig("localhost:50051")
+	// Ни JWT токен, ни service auth не установлены - это допустимо (v1.0+)
+
+	cl := &Client{
+		jwtClient:    mockJWT,
+		apiKeyClient: mockAPIKey,
+		keyCache:     NewKeyCache(nil),
+		config:       config,
+	}
+
+	req := &authv1.ValidateTokenRequest{
+		Token:          "token-to-validate",
+		CheckBlacklist: true,
+	}
+
+	expectedResp := &authv1.ValidateTokenResponse{
+		Valid: true,
+		Claims: &authv1.TokenClaims{
+			UserId: "user-123",
+		},
+	}
+
+	mockJWT.On("ValidateToken", mock.Anything, req).Return(expectedResp, nil)
+
+	resp, err := cl.ValidateToken(context.Background(), req)
+	assert.NoError(t, err) // Не должно быть ошибки - аутентификация опциональна (v1.0+)
+	assert.True(t, resp.Valid)
+	mockJWT.AssertExpectations(t)
+}
+
 // TestWrapErrorPermissionDenied тестирует обработку PermissionDenied ошибки
 func TestWrapErrorPermissionDenied(t *testing.T) {
 	tests := []struct {
-		name           string
-		err            error
-		expectedErr    error
+		name             string
+		err              error
+		expectedErr      error
 		checkServiceAuth bool
 	}{
 		{
-			name: "Service authentication failed",
-			err:  status.Error(codes.PermissionDenied, "service authentication failed: invalid service-name or service-secret"),
-			expectedErr: ErrServiceAuthFailed,
+			name:             "Service authentication failed",
+			err:              status.Error(codes.PermissionDenied, "service authentication failed: invalid service-name or service-secret"),
+			expectedErr:      ErrServiceAuthFailed,
 			checkServiceAuth: true,
 		},
 		{
-			name: "General PermissionDenied",
-			err:  status.Error(codes.PermissionDenied, "permission denied"),
-			expectedErr: nil, // Should return ClientError with ERROR_UNKNOWN
+			name:             "General PermissionDenied",
+			err:              status.Error(codes.PermissionDenied, "permission denied"),
+			expectedErr:      nil, // Should return ClientError with ERROR_UNKNOWN
 			checkServiceAuth: false,
 		},
 	}
@@ -521,3 +567,158 @@ func TestWrapErrorUnauthenticated(t *testing.T) {
 	assert.Equal(t, authv1.ErrorCode_ERROR_UNKNOWN, clientErr.Code)
 }
 
+// TestMetadataProjectID тестирует добавление project-id в metadata (v1.0+)
+func TestMetadataProjectID(t *testing.T) {
+	config := DefaultConfig("localhost:50051")
+	config.ProjectID = "default-project-id"
+
+	cl := &Client{
+		config: config,
+	}
+
+	ctx := context.Background()
+	ctx = cl.withMetadata(ctx, "", false)
+
+	md, ok := metadata.FromOutgoingContext(ctx)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"default-project-id"}, md.Get("project-id"))
+}
+
+// TestMetadataJWTOnlyForRequiredMethods тестирует, что JWT токен добавляется только для методов, требующих JWT (v1.0+)
+func TestMetadataJWTOnlyForRequiredMethods(t *testing.T) {
+	config := DefaultConfig("localhost:50051")
+	config.JWTToken = "test-jwt-token"
+
+	cl := &Client{
+		config: config,
+	}
+
+	ctx := context.Background()
+
+	// Для методов без требования JWT - JWT не должен добавляться
+	ctx1 := cl.withMetadata(ctx, "", false)
+	md1, _ := metadata.FromOutgoingContext(ctx1)
+	assert.Empty(t, md1.Get("authorization"))
+
+	// Для методов с требованием JWT - JWT должен добавляться
+	ctx2 := cl.withMetadata(ctx, "", true)
+	md2, _ := metadata.FromOutgoingContext(ctx2)
+	assert.Equal(t, []string{"Bearer test-jwt-token"}, md2.Get("authorization"))
+}
+
+// TestRevokeTokenRequiresJWT тестирует, что RevokeToken требует JWT токен (v1.0+)
+func TestRevokeTokenRequiresJWT(t *testing.T) {
+	mockJWT := new(MockJWTServiceClient)
+	mockAPIKey := new(MockAPIKeyServiceClient)
+
+	config := DefaultConfig("localhost:50051")
+	config.JWTToken = "test-jwt-token"
+
+	cl := &Client{
+		jwtClient:    mockJWT,
+		apiKeyClient: mockAPIKey,
+		keyCache:     NewKeyCache(nil),
+		config:       config,
+	}
+
+	req := &authv1.RevokeTokenRequest{
+		Token: "token-to-revoke",
+	}
+
+	expectedResp := &authv1.RevokeTokenResponse{
+		Success: true,
+	}
+
+	mockJWT.On("RevokeToken", mock.Anything, req).Return(expectedResp, nil)
+
+	resp, err := cl.RevokeToken(context.Background(), req)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+	mockJWT.AssertExpectations(t)
+}
+
+// TestAPIKeyMethodsRequireJWT тестирует, что методы APIKeyService требуют JWT токен (v1.0+)
+func TestAPIKeyMethodsRequireJWT(t *testing.T) {
+	mockJWT := new(MockJWTServiceClient)
+	mockAPIKey := new(MockAPIKeyServiceClient)
+
+	config := DefaultConfig("localhost:50051")
+	config.JWTToken = "test-jwt-token"
+
+	cl := &Client{
+		jwtClient:    mockJWT,
+		apiKeyClient: mockAPIKey,
+		keyCache:     NewKeyCache(nil),
+		config:       config,
+	}
+
+	// Test CreateAPIKey
+	createReq := &authv1.CreateAPIKeyRequest{
+		ProjectId: "project-123",
+		Name:      "test-key",
+	}
+	createResp := &authv1.CreateAPIKeyResponse{
+		ApiKey: "test-api-key",
+		KeyId:  "key-1",
+	}
+	mockAPIKey.On("CreateAPIKey", mock.Anything, createReq).Return(createResp, nil)
+
+	resp, err := cl.CreateAPIKey(context.Background(), createReq)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-api-key", resp.ApiKey)
+	mockAPIKey.AssertExpectations(t)
+}
+
+// TestValidateTokenWithoutJWT тестирует, что ValidateToken не требует JWT токен (v1.0+)
+func TestValidateTokenWithoutJWT(t *testing.T) {
+	mockJWT := new(MockJWTServiceClient)
+	mockAPIKey := new(MockAPIKeyServiceClient)
+
+	config := DefaultConfig("localhost:50051")
+	// JWT токен не установлен - ValidateToken должен работать
+
+	cl := &Client{
+		jwtClient:    mockJWT,
+		apiKeyClient: mockAPIKey,
+		keyCache:     NewKeyCache(nil),
+		config:       config,
+	}
+
+	req := &authv1.ValidateTokenRequest{
+		Token:          "token-to-validate",
+		CheckBlacklist: true,
+	}
+
+	expectedResp := &authv1.ValidateTokenResponse{
+		Valid: true,
+		Claims: &authv1.TokenClaims{
+			UserId: "user-123",
+		},
+	}
+
+	mockJWT.On("ValidateToken", mock.Anything, req).Return(expectedResp, nil)
+
+	resp, err := cl.ValidateToken(context.Background(), req)
+	assert.NoError(t, err) // Не должно быть ошибки даже без JWT токена
+	assert.True(t, resp.Valid)
+	mockJWT.AssertExpectations(t)
+}
+
+// TestMetadataServiceAuth тестирует добавление service authentication в metadata
+func TestMetadataServiceAuth(t *testing.T) {
+	config := DefaultConfig("localhost:50051")
+	config.ServiceName = "test-service"
+	config.ServiceSecret = "test-secret"
+
+	cl := &Client{
+		config: config,
+	}
+
+	ctx := context.Background()
+	ctx = cl.withMetadata(ctx, "", false)
+
+	md, ok := metadata.FromOutgoingContext(ctx)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"test-service"}, md.Get("service-name"))
+	assert.Equal(t, []string{"test-secret"}, md.Get("service-secret"))
+}

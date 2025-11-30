@@ -224,7 +224,6 @@ func (ts *TestSuite) testRefreshToken(ctx context.Context) {
 	// Now refresh it
 	req := &authv1.RefreshTokenRequest{
 		RefreshToken: issueResp.RefreshToken,
-		ProjectId:    "", // Empty - will use default-project-id from metadata (v0.9.3+)
 	}
 
 	resp, err := ts.Client.RefreshToken(ctx, req)
@@ -384,7 +383,6 @@ func (ts *TestSuite) testValidateTokenWithoutJWT(ctx context.Context) {
 
 	req := &authv1.ValidateTokenRequest{
 		Token:          issueResp.AccessToken,
-		ProjectId:      "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		CheckBlacklist: true,
 	}
 
@@ -419,7 +417,6 @@ func (ts *TestSuite) testValidateTokenWithJWT(ctx context.Context) {
 
 	req := &authv1.ValidateTokenRequest{
 		Token:          jwtTokenResp.AccessToken,
-		ProjectId:      "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		CheckBlacklist: true,
 	}
 
@@ -458,8 +455,7 @@ func (ts *TestSuite) testParseTokenWithJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.ParseTokenRequest{
-		Token:     jwtTokenResp.AccessToken,
-		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
+		Token: jwtTokenResp.AccessToken,
 	}
 
 	resp, err := cl.ParseToken(ctx, req)
@@ -501,7 +497,6 @@ func (ts *TestSuite) testExtractClaimsWithJWT(ctx context.Context) {
 
 	req := &authv1.ExtractClaimsRequest{
 		Token:     jwtTokenResp.AccessToken,
-		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
 		ClaimKeys: []string{"user_id", "role"},
 	}
 
@@ -540,9 +535,8 @@ func (ts *TestSuite) testRevokeTokenWithJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.RevokeTokenRequest{
-		Token:     jwtTokenResp.AccessToken,
-		ProjectId: "", // Empty - will use default-project-id from metadata (v0.9.3+)
-		Ttl:       3600,
+		Token: jwtTokenResp.AccessToken,
+		Ttl:   3600,
 	}
 
 	resp, err := cl.RevokeToken(ctx, req)

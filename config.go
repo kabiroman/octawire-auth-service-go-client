@@ -15,10 +15,10 @@ type ClientConfig struct {
 	// APIKey - API ключ для аутентификации (опционально)
 	APIKey string
 
-	// ServiceName - имя сервиса для service authentication (опционально, требуется для IssueServiceToken)
+	// ServiceName - имя сервиса для service authentication (опционально, v1.0+)
 	ServiceName string
 
-	// ServiceSecret - секрет сервиса для service authentication (опционально, требуется для IssueServiceToken)
+	// ServiceSecret - секрет сервиса для service authentication (опционально, v1.0+)
 	ServiceSecret string
 
 	// JWTToken - JWT токен для методов, требующих JWT аутентификации (опционально)
@@ -110,4 +110,3 @@ func DefaultConfig(address string) *ClientConfig {
 		},
 	}
 }
-

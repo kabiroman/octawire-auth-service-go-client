@@ -62,7 +62,6 @@ func main() {
 
 	validateReq := &authv1.ValidateTokenRequest{
 		Token:          issueResp.AccessToken,
-		ProjectId:      "default-project-id", // Required (v0.9.3+)
 		CheckBlacklist: true,
 	}
 
@@ -86,7 +85,6 @@ func main() {
 	fmt.Println("\n=== RefreshToken ===")
 	refreshReq := &authv1.RefreshTokenRequest{
 		RefreshToken: issueResp.RefreshToken,
-		ProjectId:    "default-project-id", // Required (v0.9.3+)
 	}
 
 	refreshResp, err := cl.RefreshToken(ctx, refreshReq)

@@ -321,7 +321,6 @@ func TestAllScenariosIntegration(t *testing.T) {
 				// Validate token
 				validateReq := &authv1.ValidateTokenRequest{
 					Token:          issueResp.AccessToken,
-					ProjectId:      "", // Empty for legacy mode (server extracts from token claims)
 					CheckBlacklist: true,
 				}
 
