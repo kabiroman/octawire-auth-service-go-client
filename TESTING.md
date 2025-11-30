@@ -1,320 +1,522 @@
-# Testing Guide
+# Руководство по тестированию
 
-This document describes how to test the Go client against Auth Service in different scenarios.
+Этот документ описывает, как тестировать Go-клиент для Auth Service в различных сценариях.
 
-## Test Scenarios
+## Типы тестов
 
-The client is tested against Auth Service in 4 different scenarios:
+Клиент включает два типа тестов:
 
-### Scenario 1: DEV + service_auth=false
-- **Environment**: `PRODUCTION` not set or `false`
-- **Config**: `service_auth.enabled = false`
-- **TLS**: Optional (can be disabled)
-- **Expected Behavior**:
-  - Public methods work (IssueToken, RefreshToken, GetPublicKey, HealthCheck)
-  - IssueServiceToken fails (service auth required but disabled)
-  - JWT methods require JWT token
+1. **Юнит-тесты** (`client_test.go`) - тестирование компонентов клиента без реального сервиса
+2. **Интеграционные тесты** (`integration_test.go`) - тестирование клиента против реального Auth Service
 
-### Scenario 2: DEV + service_auth=true
-- **Environment**: `PRODUCTION` not set or `false`
-- **Config**: `service_auth.enabled = true`
-- **TLS**: Optional (can be disabled)
-- **Expected Behavior**:
-  - Public methods work
-  - IssueServiceToken works with valid service auth
-  - IssueServiceToken fails without service auth
-  - JWT methods require JWT token
+## Юнит-тесты
 
-### Scenario 3: PROD + service_auth=false
-- **Environment**: `PRODUCTION=true`
-- **Config**: `service_auth.enabled = false`
-- **TLS**: Recommended but not mandatory
-- **Expected Behavior**:
-  - Public methods work
-  - IssueServiceToken fails (service auth required but disabled)
-  - JWT methods require JWT token
+Юнит-тесты проверяют логику клиента изолированно, используя моки для gRPC клиента. Эти тесты не требуют запущенного сервиса и выполняются быстро.
 
-### Scenario 4: PROD + service_auth=true
-- **Environment**: `PRODUCTION=true`
-- **Config**: `service_auth.enabled = true`
-- **TLS**: **Mandatory** for both gRPC and TCP
-- **Expected Behavior**:
-  - Public methods work (with TLS)
-  - IssueServiceToken works with valid service auth (with TLS)
-  - IssueServiceToken fails without service auth
-  - JWT methods require JWT token (with TLS)
-
-## Running Tests
-
-### Prerequisites
-
-1. **Auth Service** must be built:
-   ```bash
-   cd services/auth-service
-   go build -o bin/auth-service ./cmd/auth-service
-   ```
-
-2. **Test configurations** must exist in `services/auth-service/config/`:
-   - `config.dev.service_auth_false.json`
-   - `config.dev.service_auth_true.json`
-   - `config.prod.service_auth_false.json`
-   - `config.prod.service_auth_true.json`
-
-3. **Redis** must be running (for blacklist and caching):
-   ```bash
-   redis-server
-   ```
-
-4. **JWT keys** must exist (if using TLS in PROD scenarios):
-   - `/etc/jwt/private.pem`
-   - `/etc/jwt/public.pem`
-   - `/etc/jwt/tls/cert.pem` (for TLS)
-   - `/etc/jwt/tls/key.pem` (for TLS)
-
-### Automated Testing
-
-Run all scenarios automatically:
-
-```bash
-cd services/auth-service
-./scripts/test-client-scenarios.sh
-```
-
-The script will:
-1. Start service with each configuration
-2. Run test client for each scenario
-3. Collect results
-4. Stop service
-5. Report summary
-
-### Manual Testing
-
-#### 1. Start Service
-
-For DEV scenarios:
-```bash
-cd services/auth-service
-PRODUCTION=false ./bin/auth-service -config config/config.dev.service_auth_true.json
-```
-
-For PROD scenarios:
-```bash
-cd services/auth-service
-PRODUCTION=true ./bin/auth-service -config config/config.prod.service_auth_true.json
-```
-
-#### 2. Run Test Client
-
-```bash
-cd services/auth-service/clients/octawire-auth-service-go-client/examples/test-scenarios
-go run main.go -scenario dev-sa-true
-```
-
-Available scenarios:
-- `dev-sa-false` - DEV with service_auth disabled
-- `dev-sa-true` - DEV with service_auth enabled
-- `prod-sa-false` - PROD with service_auth disabled
-- `prod-sa-true` - PROD with service_auth enabled
-
-## Test Cases
-
-The test program covers:
-
-### Public Methods (No Authentication Required)
-- ✅ `IssueToken` - Issue new JWT token
-- ✅ `RefreshToken` - Refresh token
-- ✅ `GetPublicKey` - Get public key
-- ✅ `HealthCheck` - Health check
-
-### Service Authentication Methods
-- ✅ `IssueServiceToken` with valid service auth - should work
-- ✅ `IssueServiceToken` without service auth - should fail
-- ✅ `IssueServiceToken` with invalid service auth - should fail
-
-### JWT Authentication Methods
-- ✅ `ValidateToken` with JWT token - should work
-- ✅ `ValidateToken` without JWT token - should fail
-- ✅ `ParseToken` with JWT token - should work
-- ✅ `ExtractClaims` with JWT token - should work
-- ✅ `RevokeToken` with JWT token - should work
-- ✅ `ValidateBatch` with JWT token - should work
-
-### APIKeyService Methods (All Require JWT)
-- ✅ `CreateAPIKey` with JWT token - should work
-- ✅ `ValidateAPIKey` with JWT token - should work
-- ✅ `ListAPIKeys` with JWT token - should work
-
-### Error Handling
-- ✅ `ErrServiceAuthFailed` is returned correctly
-- ✅ `PermissionDenied` errors are handled
-- ✅ `Unauthenticated` errors are handled
-
-## Expected Results Matrix
-
-| Scenario | IssueServiceToken (no auth) | IssueServiceToken (with auth) | JWT Methods (no token) | JWT Methods (with token) |
-|----------|----------------------------|-------------------------------|------------------------|--------------------------|
-| DEV + sa=false | ❌ Fail (service auth required) | ❌ Fail (service auth disabled) | ❌ Fail | ✅ Pass |
-| DEV + sa=true | ❌ Fail (service auth required) | ✅ Pass | ❌ Fail | ✅ Pass |
-| PROD + sa=false | ❌ Fail (service auth required) | ❌ Fail (service auth disabled) | ❌ Fail | ✅ Pass |
-| PROD + sa=true | ❌ Fail (service auth required) | ✅ Pass (TLS required) | ❌ Fail | ✅ Pass (TLS required) |
-
-## Troubleshooting
-
-### Service Fails to Start
-
-**Problem**: Service exits immediately or fails to start
-
-**Solutions**:
-1. Check if Redis is running:
-   ```bash
-   redis-cli ping
-   ```
-
-2. Check if ports are available:
-   ```bash
-   # gRPC port
-   lsof -i :50051
-   # TCP port
-   lsof -i :50052
-   # HTTP port
-   lsof -i :9765
-   ```
-
-3. Check service logs:
-   ```bash
-   cat /tmp/auth-service.log
-   ```
-
-4. Verify config file is valid JSON:
-   ```bash
-   jq . config/config.dev.service_auth_true.json
-   ```
-
-### TLS Errors in PROD Scenarios
-
-**Problem**: Service fails to start with TLS errors in PROD scenarios
-
-**Solutions**:
-1. Ensure TLS certificates exist:
-   ```bash
-   ls -la /etc/jwt/tls/
-   ```
-
-2. For testing, you can generate self-signed certificates:
-   ```bash
-   mkdir -p /etc/jwt/tls
-   openssl req -x509 -newkey rsa:4096 -keyout /etc/jwt/tls/key.pem \
-     -out /etc/jwt/tls/cert.pem -days 365 -nodes \
-     -subj "/CN=localhost"
-   ```
-
-3. Update config to point to correct certificate paths
-
-### Client Connection Errors
-
-**Problem**: Client cannot connect to service
-
-**Solutions**:
-1. Verify service is running:
-   ```bash
-   curl http://localhost:9765/health
-   ```
-
-2. Check if using correct address:
-   - Default: `localhost:50051` for gRPC
-   - For TLS: ensure client TLS config matches server
-
-3. Check firewall/network settings
-
-### Authentication Failures
-
-**Problem**: Methods fail with authentication errors
-
-**Solutions**:
-1. **Service Auth Failures**:
-   - Verify `ServiceName` and `ServiceSecret` are set in client config
-   - Verify service name is in `allowed_services` in server config
-   - Verify secret matches server config
-
-2. **JWT Auth Failures**:
-   - Verify `JWTToken` is set in client config
-   - Verify token is valid and not expired
-   - Verify token was issued by the same service
-
-### Test Client Compilation Errors
-
-**Problem**: `go run main.go` fails with compilation errors
-
-**Solutions**:
-1. Ensure you're in the correct directory:
-   ```bash
-   cd services/auth-service/clients/octawire-auth-service-go-client/examples/test-scenarios
-   ```
-
-2. Update dependencies:
-   ```bash
-   cd services/auth-service/clients/octawire-auth-service-go-client
-   go mod tidy
-   ```
-
-3. Check Go version (requires Go 1.24+):
-   ```bash
-   go version
-   ```
-
-## Test Output
-
-The test program outputs results for each test case:
-
-```
-=== Test Results for Scenario: dev-sa-true ===
-✅ IssueToken: PASSED - Token issued, key_id: key-1
-✅ RefreshToken: PASSED - Token refreshed successfully
-✅ GetPublicKey: PASSED - Key retrieved, algorithm: RS256
-✅ HealthCheck: PASSED - Service healthy: true, version: 0.9.2
-✅ IssueServiceToken (no auth): PASSED - Correctly failed with client error
-✅ IssueServiceToken (with auth): PASSED - Service token issued successfully
-...
-
-Summary: 17 passed, 0 failed
-```
-
-## Integration Tests (Go Test)
-
-The client includes a comprehensive integration test suite (`integration_test.go`) that can be run as part of Go test suite:
+### Запуск юнит-тестов
 
 ```bash
 cd services/auth-service/clients/octawire-auth-service-go-client
 
-# Run integration tests (requires running service)
-go test -v -integration=true -service-address=localhost:50051 -api-key=your-api-key
+# Запустить все юнит-тесты
+go test -v ./...
 
-# Run all tests (unit + integration)
-go test -v -integration=true ./...
+# Запустить только юнит-тесты (без интеграционных)
+go test -v -short ./...
+
+# Запустить конкретный тест
+go test -v -run TestValidateTokenWithoutAuth
 ```
 
-The integration test suite:
-- Automatically detects TLS requirements from server configuration
-- Tests all 4 scenarios (DEV/PROD × service_auth true/false)
-- Handles both legacy single-project and multi-project modes
-- Provides helpful error messages for configuration issues
+### Покрытие юнит-тестов
 
-**Note:** Integration tests are skipped by default. Use `-integration=true` flag to enable them.
+Юнит-тесты покрывают следующие аспекты:
 
-## Continuous Integration
+#### Обработка ошибок
+- ✅ `TestErrorHandling` - обработка различных типов ошибок
+- ✅ `TestWrapError` - обёртка ошибок клиента
+- ✅ `TestWrapErrorPermissionDenied` - обработка ошибок доступа
+- ✅ `TestWrapErrorUnauthenticated` - обработка ошибок аутентификации
 
-For CI/CD pipelines, you can run:
+#### Кэширование ключей
+- ✅ `TestKeyCache` - кэширование публичных ключей
+
+#### Retry логика
+- ✅ `TestRetryLogic` - повторные попытки при ошибках
+- ✅ `TestRetryLogicNonRetryable` - пропуск повторных попыток для некритичных ошибок
+
+#### Конфигурация
+- ✅ `TestDefaultConfig` - значения конфигурации по умолчанию
+
+#### Методы клиента
+- ✅ `TestClientIssueToken` - выдача токенов
+- ✅ `TestClientGetPublicKeyWithCache` - получение публичного ключа с кэшем
+
+#### Аутентификация
+- ✅ `TestIssueServiceTokenWithServiceAuth` - выдача service токена с аутентификацией
+- ✅ `TestIssueServiceTokenWithoutServiceAuth` - выдача service токена без аутентификации
+- ✅ `TestValidateTokenWithJWT` - валидация токена с JWT
+- ✅ `TestValidateTokenWithoutAuth` - валидация токена без аутентификации
+- ✅ `TestValidateTokenWithoutJWT` - валидация токена без JWT токена
+
+#### Метаданные
+- ✅ `TestMetadataProjectID` - добавление project-id в метаданные
+- ✅ `TestMetadataJWTOnlyForRequiredMethods` - добавление JWT только для требуемых методов
+- ✅ `TestMetadataServiceAuth` - добавление service authentication в метаданные
+
+#### JWT требования
+- ✅ `TestRevokeTokenRequiresJWT` - проверка требования JWT для RevokeToken
+- ✅ `TestAPIKeyMethodsRequireJWT` - проверка требования JWT для методов APIKeyService
+
+### Пример вывода юнит-тестов
+
+```
+=== RUN   TestValidateTokenWithoutAuth
+=== RUN   TestValidateTokenWithoutAuth/Without_Auth
+--- PASS: TestValidateTokenWithoutAuth (0.00s)
+    --- PASS: TestValidateTokenWithoutAuth/Without_Auth (0.00s)
+PASS
+ok  	github.com/kabiroman/octawire-auth-service-go-client	0.015s
+```
+
+## Интеграционные тесты
+
+Интеграционные тесты проверяют клиент против реального запущенного Auth Service. Они тестируют различные сценарии конфигурации: с TLS и без, с service authentication и без.
+
+### Сценарии тестирования
+
+Клиент тестируется в 4 различных сценариях:
+
+#### Сценарий 1: Без TLS и без аутентификации
+- **TLS**: Отключен
+- **Service Auth**: Отключен
+- **Ожидаемое поведение**:
+  - Публичные методы работают (IssueToken, RefreshToken, GetPublicKey, HealthCheck)
+  - Методы с опциональной аутентификацией работают (ValidateToken, ParseToken, ExtractClaims, ValidateBatch)
+  - IssueServiceToken может не работать (требуется service auth)
+  - Методы требующие JWT требуют JWT токен (RevokeToken, CreateAPIKey)
+
+#### Сценарий 2: Без TLS, с Service Authentication
+- **TLS**: Отключен
+- **Service Auth**: Включен
+- **Ожидаемое поведение**:
+  - Публичные методы работают
+  - IssueServiceToken работает с валидной service auth
+  - IssueServiceToken не работает без service auth
+
+#### Сценарий 3: С TLS, без аутентификации
+- **TLS**: Включен
+- **Service Auth**: Отключен
+- **Ожидаемое поведение**:
+  - Все методы работают через TLS соединение
+  - Требуется корректная конфигурация TLS на сервере
+
+#### Сценарий 4: С TLS и с Service Authentication
+- **TLS**: Включен
+- **Service Auth**: Включен
+- **Ожидаемое поведение**:
+  - Все методы работают через TLS соединение
+  - IssueServiceToken работает с валидной service auth через TLS
+
+### Настройка окружения для интеграционных тестов
+
+#### 1. Запуск Auth Service через Docker Compose
+
+Самый простой способ - использовать Docker Compose:
 
 ```bash
 cd services/auth-service
-./scripts/test-client-scenarios.sh
+
+# Запустить все зависимости (Redis, PostgreSQL)
+docker-compose up -d redis postgres
+
+# Запустить Auth Service (dev режим, без TLS, без service auth)
+docker-compose --profile dev up -d auth-service-dev
+
+# Проверить статус
+docker-compose ps
+
+# Просмотр логов
+docker-compose logs -f auth-service-dev
 ```
 
-The script exits with code 0 if all tests pass, or 1 if any test fails.
+#### 2. Конфигурация сервиса
 
-## Additional Resources
+Для тестирования разных сценариев можно изменить конфигурацию в `services/auth-service/config/config.json`:
 
-- [Client README](../README.md) - Client usage documentation
-- [gRPC Methods Specification](../../../docs/protocol/GRPC_METHODS_1.0.md) - Complete API reference
-- [Security Guide](../../../docs/SECURITY.md) - Security best practices
+**Базовые настройки для тестов без TLS и без auth:**
+```json
+{
+  "security": {
+    "auth_required": false,
+    "service_auth": {
+      "enabled": false
+    }
+  },
+  "tls": {
+    "enabled": false
+  }
+}
+```
 
+**Для тестов с service auth:**
+```json
+{
+  "security": {
+    "auth_required": false,
+    "service_auth": {
+      "enabled": true,
+      "services": {
+        "identity-service": {
+          "secret": "identity-service-secret-abc123def456"
+        }
+      }
+    }
+  },
+  "tls": {
+    "enabled": false
+  }
+}
+```
+
+**Для тестов с TLS:**
+```json
+{
+  "tls": {
+    "enabled": true,
+    "cert_file": "/app/config/tls/cert.pem",
+    "key_file": "/app/config/tls/key.pem"
+  }
+}
+```
+
+#### 3. Перезапуск сервиса после изменения конфигурации
+
+```bash
+cd services/auth-service
+
+# Остановить сервис
+docker-compose stop auth-service-dev
+
+# Обновить конфигурацию в config/config.json
+
+# Запустить снова
+docker-compose start auth-service-dev
+
+# Или пересоздать контейнер
+docker-compose up -d --force-recreate auth-service-dev
+```
+
+### Запуск интеграционных тестов
+
+#### Базовый запуск
+
+```bash
+cd services/auth-service/clients/octawire-auth-service-go-client
+
+# Запустить все интеграционные тесты
+go test -v -integration=true -service-address=localhost:50051
+
+# Запустить только тест без TLS и без auth
+go test -v -integration=true -run TestAllMethodsWithoutTLSAndAuth -service-address=localhost:50051
+
+# Запустить тест всех сценариев
+go test -v -integration=true -run TestAllMethodsScenariosV1 -service-address=localhost:50051
+```
+
+#### Доступные флаги
+
+- `-integration=true` - включить интеграционные тесты (по умолчанию пропускаются)
+- `-service-address=HOST:PORT` - адрес Auth Service (по умолчанию `localhost:50051`)
+- `-api-key=KEY` - API ключ для аутентификации (опционально)
+
+### Структура интеграционных тестов
+
+#### TestAllMethodsWithoutTLSAndAuth
+
+Простой тест, который проверяет все методы без TLS и без аутентификации:
+
+```bash
+go test -v -integration=true -run TestAllMethodsWithoutTLSAndAuth -service-address=localhost:50051
+```
+
+Этот тест проверяет:
+- HealthCheck
+- IssueToken
+- ValidateToken
+- RefreshToken
+- ParseToken
+- ExtractClaims
+- ValidateBatch
+- GetPublicKey
+- IssueServiceToken
+- RevokeToken
+- CreateAPIKey
+
+#### TestAllMethodsScenariosV1
+
+Комплексный тест, который автоматически проверяет все 4 сценария:
+
+```bash
+go test -v -integration=true -run TestAllMethodsScenariosV1 -service-address=localhost:50051
+```
+
+Этот тест:
+- Автоматически определяет, требуется ли TLS на сервере
+- Пропускает TLS-сценарии, если сервер не поддерживает TLS
+- Создаёт JWT токен для методов, требующих JWT
+- Выполняет все тесты методов для каждого доступного сценария
+
+### Пример вывода интеграционных тестов
+
+```
+=== RUN   TestAllMethodsScenariosV1
+=== RUN   TestAllMethodsScenariosV1/NoTLS_NoAuth
+    integration_test.go:757: Testing scenario: NoTLS_NoAuth (TLS=false, ServiceAuth=false)
+=== RUN   TestAllMethodsScenariosV1/NoTLS_NoAuth/HealthCheck
+    integration_test.go:63: HealthCheck: version=v0.9.0-dev, uptime=1709
+=== RUN   TestAllMethodsScenariosV1/NoTLS_NoAuth/IssueToken
+    integration_test.go:77: IssueToken: access_token length=622, expires_at=1764539168
+...
+--- PASS: TestAllMethodsScenariosV1 (0.10s)
+    --- PASS: TestAllMethodsScenariosV1/NoTLS_NoAuth (0.04s)
+    --- PASS: TestAllMethodsScenariosV1/NoTLS_WithServiceAuth (0.05s)
+    --- SKIP: TestAllMethodsScenariosV1/WithTLS_NoAuth (0.00s)
+    --- SKIP: TestAllMethodsScenariosV1/WithTLS_WithServiceAuth (0.00s)
+PASS
+```
+
+## Тестирование различных сценариев
+
+### Сценарий 1: Без TLS и без auth
+
+**Настройка сервиса:**
+1. Убедитесь, что `config/config.json` содержит:
+   ```json
+   {
+     "security": {
+       "auth_required": false,
+       "service_auth": {
+         "enabled": false
+       }
+     },
+     "tls": {
+       "enabled": false
+     }
+   }
+   ```
+
+2. Запустите сервис:
+   ```bash
+   docker-compose --profile dev up -d auth-service-dev
+   ```
+
+**Запуск тестов:**
+```bash
+go test -v -integration=true -run TestAllMethodsWithoutTLSAndAuth -service-address=localhost:50051
+```
+
+### Сценарий 2: Без TLS, с Service Auth
+
+**Настройка сервиса:**
+1. Измените `config/config.json`:
+   ```json
+   {
+     "security": {
+       "auth_required": false,
+       "service_auth": {
+         "enabled": true,
+         "services": {
+           "identity-service": {
+             "secret": "identity-service-secret-abc123def456"
+           }
+         }
+       }
+     },
+     "tls": {
+       "enabled": false
+     }
+   }
+   ```
+
+2. Перезапустите сервис:
+   ```bash
+   docker-compose restart auth-service-dev
+   ```
+
+**Запуск тестов:**
+```bash
+go test -v -integration=true -run TestAllMethodsScenariosV1 -service-address=localhost:50051
+```
+
+### Сценарий 3 и 4: С TLS
+
+Для тестирования сценариев с TLS необходимо:
+
+1. Создать TLS сертификаты:
+   ```bash
+   cd services/auth-service
+   mkdir -p config/tls
+   
+   openssl req -x509 -newkey rsa:4096 -keyout config/tls/key.pem \
+     -out config/tls/cert.pem -days 365 -nodes \
+     -subj "/CN=localhost"
+   ```
+
+2. Обновить `config/config.json`:
+   ```json
+   {
+     "tls": {
+       "enabled": true,
+       "cert_file": "/app/config/tls/cert.pem",
+       "key_file": "/app/config/tls/key.pem"
+     }
+   }
+   ```
+
+3. Обновить `docker-compose.yml` для монтирования сертификатов:
+   ```yaml
+   volumes:
+     - ./config:/app/config:ro
+     - ./config/tls:/app/config/tls:ro
+   ```
+
+4. Перезапустить сервис:
+   ```bash
+   docker-compose up -d --force-recreate auth-service-dev
+   ```
+
+5. Запустить тесты:
+   ```bash
+   go test -v -integration=true -run TestAllMethodsScenariosV1 -service-address=localhost:50051
+   ```
+
+## Устранение неполадок
+
+### Сервис не запускается
+
+**Проблема**: Сервис сразу завершается или не запускается
+
+**Решения**:
+1. Проверьте, запущен ли Redis:
+   ```bash
+   docker-compose ps redis
+   # или
+   redis-cli ping
+   ```
+
+2. Проверьте, доступны ли порты:
+   ```bash
+   # gRPC порт
+   lsof -i :50051
+   # HTTP порт (health check)
+   lsof -i :9765
+   ```
+
+3. Проверьте логи сервиса:
+   ```bash
+   docker-compose logs auth-service-dev
+   ```
+
+4. Проверьте конфигурацию:
+   ```bash
+   # Проверить синтаксис JSON
+   jq . services/auth-service/config/config.json
+   ```
+
+### Ошибки TLS в сценариях с TLS
+
+**Проблема**: Сервис не запускается с ошибками TLS
+
+**Решения**:
+1. Убедитесь, что сертификаты существуют:
+   ```bash
+   ls -la services/auth-service/config/tls/
+   ```
+
+2. Проверьте пути к сертификатам в конфигурации:
+   ```json
+   {
+     "tls": {
+       "enabled": true,
+       "cert_file": "/app/config/tls/cert.pem",
+       "key_file": "/app/config/tls/key.pem"
+     }
+   }
+   ```
+
+3. Убедитесь, что сертификаты смонтированы в Docker контейнер:
+   ```bash
+   docker-compose exec auth-service-dev ls -la /app/config/tls/
+   ```
+
+### Ошибки подключения клиента
+
+**Проблема**: Клиент не может подключиться к сервису
+
+**Решения**:
+1. Проверьте, что сервис запущен:
+   ```bash
+   curl http://localhost:9765/health
+   # или
+   docker-compose ps
+   ```
+
+2. Проверьте адрес сервиса:
+   - По умолчанию: `localhost:50051` для gRPC
+   - Для Docker: может потребоваться использовать IP контейнера
+
+3. Для TLS: убедитесь, что клиент использует `InsecureSkipVerify: true` для тестов с самоподписанными сертификатами
+
+### Ошибки аутентификации
+
+**Проблема**: Методы завершаются с ошибками аутентификации
+
+**Решения**:
+1. **Service Auth ошибки**:
+   - Проверьте, что `ServiceName` и `ServiceSecret` установлены в конфигурации клиента
+   - Проверьте, что имя сервиса есть в `allowed_services` в конфигурации сервера
+   - Проверьте, что секрет совпадает с конфигурацией сервера
+
+2. **JWT Auth ошибки**:
+   - Проверьте, что `JWTToken` установлен в конфигурации клиента
+   - Проверьте, что токен валиден и не истёк
+   - Проверьте, что токен был выдан тем же сервисом
+
+### Ошибки компиляции тестов
+
+**Проблема**: `go test` завершается с ошибками компиляции
+
+**Решения**:
+1. Убедитесь, что вы в правильной директории:
+   ```bash
+   cd services/auth-service/clients/octawire-auth-service-go-client
+   ```
+
+2. Обновите зависимости:
+   ```bash
+   go mod tidy
+   ```
+
+3. Проверьте версию Go (требуется Go 1.21+):
+   ```bash
+   go version
+   ```
+
+## Непрерывная интеграция
+
+Для CI/CD пайплайнов можно использовать:
+
+```bash
+# Запустить только юнит-тесты (быстро, не требует сервиса)
+go test -short -v ./...
+
+# Запустить интеграционные тесты (требует запущенный сервис)
+go test -v -integration=true -service-address=localhost:50051 ./...
+```
+
+## Дополнительные ресурсы
+
+- [README клиента](./README.md) - документация по использованию клиента
+- [Спецификация gRPC методов](../../docs/protocol/GRPC_METHODS_1.0.md) - полная справочная документация API
+- [Руководство по безопасности](../../docs/SECURITY.md) - лучшие практики безопасности

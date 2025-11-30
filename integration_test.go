@@ -19,6 +19,272 @@ var (
 	testAPIKey          = flag.String("api-key", "auth-service-development-key-xyz789uvw456", "API key for authentication")
 )
 
+// TestScenarioConfig содержит конфигурацию для тестового сценария
+type TestScenarioConfig struct {
+	Name          string
+	TLSEnabled    bool
+	ServiceAuth   bool
+	ServiceName   string
+	ServiceSecret string
+	JWTToken      string
+	APIKey        string
+}
+
+// createTestClient создает клиент с конфигурацией на основе сценария
+func createTestClient(scenario *TestScenarioConfig, address string) (*Client, error) {
+	config := DefaultConfig(address)
+	config.TLS = &TLSConfig{
+		Enabled:            scenario.TLSEnabled,
+		InsecureSkipVerify: scenario.TLSEnabled, // For testing
+	}
+	if scenario.ServiceAuth {
+		config.ServiceName = scenario.ServiceName
+		config.ServiceSecret = scenario.ServiceSecret
+	}
+	if scenario.JWTToken != "" {
+		config.JWTToken = scenario.JWTToken
+	}
+	if scenario.APIKey != "" {
+		config.APIKey = scenario.APIKey
+	}
+	return NewClient(config)
+}
+
+// runAllMethodsTests выполняет тесты всех методов с заданным клиентом
+func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Test 1: HealthCheck (public method)
+	t.Run("HealthCheck", func(t *testing.T) {
+		resp, err := cl.HealthCheck(ctx)
+		require.NoError(t, err, "HealthCheck should work")
+		assert.True(t, resp.Healthy, "Service should be healthy")
+		t.Logf("HealthCheck: version=%s, uptime=%d", resp.Version, resp.Uptime)
+	})
+
+	// Test 2: IssueToken (public method)
+	t.Run("IssueToken", func(t *testing.T) {
+		req := &authv1.IssueTokenRequest{
+			UserId:    "test-user-123",
+			ProjectId: "", // Empty for legacy mode
+		}
+
+		resp, err := cl.IssueToken(ctx, req)
+		require.NoError(t, err, "IssueToken should work")
+		assert.NotEmpty(t, resp.AccessToken, "Access token should be returned")
+		assert.NotEmpty(t, resp.RefreshToken, "Refresh token should be returned")
+		t.Logf("IssueToken: access_token length=%d, expires_at=%d", len(resp.AccessToken), resp.AccessTokenExpiresAt)
+	})
+
+	// Test 3: ValidateToken (optional auth - should work without auth in v1.0+)
+	t.Run("ValidateToken", func(t *testing.T) {
+		// Issue a token first
+		issueReq := &authv1.IssueTokenRequest{
+			UserId:    "test-user-456",
+			ProjectId: "", // Empty for legacy mode
+		}
+		issueResp, err := cl.IssueToken(ctx, issueReq)
+		require.NoError(t, err)
+
+		req := &authv1.ValidateTokenRequest{
+			Token:          issueResp.AccessToken,
+			CheckBlacklist: true,
+		}
+
+		resp, err := cl.ValidateToken(ctx, req)
+		require.NoError(t, err, "ValidateToken should work (v1.0+)")
+		assert.True(t, resp.Valid, "Token should be valid")
+		if resp.Claims != nil {
+			t.Logf("ValidateToken: user_id=%s, expires_at=%d", resp.Claims.UserId, resp.Claims.ExpiresAt)
+		}
+	})
+
+	// Test 4: RefreshToken (public method)
+	t.Run("RefreshToken", func(t *testing.T) {
+		// First issue a token
+		issueReq := &authv1.IssueTokenRequest{
+			UserId:    "test-user-789",
+			ProjectId: "", // Empty for legacy mode
+		}
+		issueResp, err := cl.IssueToken(ctx, issueReq)
+		require.NoError(t, err)
+
+		req := &authv1.RefreshTokenRequest{
+			RefreshToken: issueResp.RefreshToken,
+		}
+
+		resp, err := cl.RefreshToken(ctx, req)
+		require.NoError(t, err, "RefreshToken should work")
+		assert.NotEmpty(t, resp.AccessToken, "New access token should be returned")
+		t.Logf("RefreshToken: new access_token length=%d", len(resp.AccessToken))
+	})
+
+	// Test 5: ParseToken (optional auth - should work without auth in v1.0+)
+	t.Run("ParseToken", func(t *testing.T) {
+		// Issue a token
+		issueReq := &authv1.IssueTokenRequest{
+			UserId:    "test-user-parse",
+			ProjectId: "", // Empty for legacy mode
+		}
+		issueResp, err := cl.IssueToken(ctx, issueReq)
+		require.NoError(t, err)
+
+		req := &authv1.ParseTokenRequest{
+			Token: issueResp.AccessToken,
+		}
+
+		resp, err := cl.ParseToken(ctx, req)
+		require.NoError(t, err, "ParseToken should work (v1.0+)")
+		assert.True(t, resp.Success, "Token should be parsed successfully")
+		if resp.Claims != nil {
+			t.Logf("ParseToken: user_id=%s, token_type=%s", resp.Claims.UserId, resp.Claims.TokenType)
+		}
+	})
+
+	// Test 6: ExtractClaims (optional auth - should work without auth in v1.0+)
+	t.Run("ExtractClaims", func(t *testing.T) {
+		// Issue a token with custom claims
+		issueReq := &authv1.IssueTokenRequest{
+			UserId:    "test-user-extract",
+			ProjectId: "", // Empty for legacy mode
+			Claims: map[string]string{
+				"role": "admin",
+				"team": "backend",
+			},
+		}
+		issueResp, err := cl.IssueToken(ctx, issueReq)
+		require.NoError(t, err)
+
+		req := &authv1.ExtractClaimsRequest{
+			Token:     issueResp.AccessToken,
+			ClaimKeys: []string{"user_id", "role", "team"},
+		}
+
+		resp, err := cl.ExtractClaims(ctx, req)
+		require.NoError(t, err, "ExtractClaims should work (v1.0+)")
+		assert.True(t, resp.Success, "Claims should be extracted successfully")
+		assert.NotEmpty(t, resp.Claims, "Claims should not be empty")
+		t.Logf("ExtractClaims: extracted %d claims", len(resp.Claims))
+	})
+
+	// Test 7: ValidateBatch (optional auth - should work without auth in v1.0+)
+	t.Run("ValidateBatch", func(t *testing.T) {
+		// Issue multiple tokens
+		var tokens []string
+		for i := 0; i < 3; i++ {
+			issueReq := &authv1.IssueTokenRequest{
+				UserId:    "test-user-batch-" + string(rune('0'+i)),
+				ProjectId: "", // Empty for legacy mode
+			}
+			issueResp, err := cl.IssueToken(ctx, issueReq)
+			require.NoError(t, err)
+			tokens = append(tokens, issueResp.AccessToken)
+		}
+
+		req := &authv1.ValidateBatchRequest{
+			Tokens:         tokens,
+			CheckBlacklist: true,
+		}
+
+		resp, err := cl.ValidateBatch(ctx, req)
+		require.NoError(t, err, "ValidateBatch should work (v1.0+)")
+		assert.Len(t, resp.Results, 3, "Should return 3 results")
+		for i, result := range resp.Results {
+			assert.True(t, result.Valid, "Token %d should be valid", i)
+		}
+		t.Logf("ValidateBatch: validated %d tokens", len(resp.Results))
+	})
+
+	// Test 8: GetPublicKey (public method)
+	t.Run("GetPublicKey", func(t *testing.T) {
+		req := &authv1.GetPublicKeyRequest{
+			ProjectId: "", // Empty for legacy mode
+		}
+
+		resp, err := cl.GetPublicKey(ctx, req)
+		require.NoError(t, err, "GetPublicKey should work")
+		assert.NotEmpty(t, resp.PublicKeyPem, "Public key should be returned")
+		assert.NotEmpty(t, resp.Algorithm, "Algorithm should be returned")
+		t.Logf("GetPublicKey: algorithm=%s, key_id=%s", resp.Algorithm, resp.KeyId)
+	})
+
+	// Test 9: IssueServiceToken (optional service auth - should work without auth in v1.0+)
+	t.Run("IssueServiceToken", func(t *testing.T) {
+		req := &authv1.IssueServiceTokenRequest{
+			SourceService: "test-service",
+			TargetService: "target-service",
+			UserId:        "test-user-service",
+			ProjectId:     "", // Empty for legacy mode
+		}
+
+		resp, err := cl.IssueServiceToken(ctx, req)
+		// May fail if server doesn't support optional service auth yet
+		if err != nil {
+			t.Logf("IssueServiceToken (may fail on older server versions): %v", err)
+		} else {
+			assert.NotEmpty(t, resp.AccessToken, "Service token should be returned")
+			t.Logf("IssueServiceToken: token length=%d", len(resp.AccessToken))
+		}
+	})
+
+	// Test 10: RevokeToken (requires JWT - should have JWT in config for this test)
+	t.Run("RevokeToken", func(t *testing.T) {
+		// First issue a token
+		issueReq := &authv1.IssueTokenRequest{
+			UserId:    "test-user-revoke",
+			ProjectId: "", // Empty for legacy mode
+		}
+		issueResp, err := cl.IssueToken(ctx, issueReq)
+		require.NoError(t, err)
+
+		req := &authv1.RevokeTokenRequest{
+			Token: issueResp.AccessToken,
+		}
+
+		_, err = cl.RevokeToken(ctx, req)
+		if config.JWTToken == "" {
+			// Without JWT token, this should fail or be skipped
+			t.Logf("RevokeToken without JWT: err=%v (expected)", err)
+		} else {
+			// With JWT token, this should succeed
+			require.NoError(t, err, "RevokeToken should work with JWT token")
+		}
+	})
+
+	// Test 11: CreateAPIKey (requires JWT and project_id)
+	t.Run("CreateAPIKey", func(t *testing.T) {
+		if config.JWTToken == "" {
+			// Without JWT token, skip this test
+			t.Logf("CreateAPIKey without JWT: skipping (JWT token required)")
+			return
+		}
+
+		// In legacy mode, project_id may not be available
+		// Try with empty project_id - server will return error which is expected
+		req := &authv1.CreateAPIKeyRequest{
+			ProjectId: "", // Empty for legacy mode - will fail but that's expected
+			Name:      "test-api-key",
+			Scopes:    []string{"read", "write"},
+		}
+
+		_, err := cl.CreateAPIKey(ctx, req)
+		if err != nil {
+			// In legacy mode without project_id, this is expected to fail
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "project_id") || strings.Contains(errStr, "project") {
+				t.Logf("CreateAPIKey failed as expected in legacy mode (project_id required): %v", err)
+				return
+			}
+			// Other errors are unexpected
+			t.Errorf("CreateAPIKey failed with unexpected error: %v", err)
+		} else {
+			// Success case - project_id was available or server accepted it
+			t.Logf("CreateAPIKey succeeded")
+		}
+	})
+}
+
 // detectTLSRequirement attempts to connect without TLS first, then with TLS if needed
 // Returns true if TLS is required, false otherwise
 func detectTLSRequirement(address string) (bool, error) {
@@ -365,229 +631,135 @@ func TestAllMethodsWithoutTLSAndAuth(t *testing.T) {
 		t.Skip("Skipping integration test. Run with -integration=true to execute")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Create client without TLS and without authentication
-	config := DefaultConfig(*serviceAddress)
-	config.TLS = &TLSConfig{
-		Enabled: false,
+	// Create scenario configuration
+	scenario := &TestScenarioConfig{
+		Name:        "NoTLS_NoAuth",
+		TLSEnabled:  false,
+		ServiceAuth: false,
 	}
-	// No service auth, no JWT token, no API key
 
-	cl, err := NewClient(config)
+	// Create client
+	cl, err := createTestClient(scenario, *serviceAddress)
 	require.NoError(t, err, "Failed to create client")
 	defer cl.Close()
 
-	// Test 1: HealthCheck (public method)
-	t.Run("HealthCheck", func(t *testing.T) {
-		resp, err := cl.HealthCheck(ctx)
-		require.NoError(t, err, "HealthCheck should work without auth")
-		assert.True(t, resp.Healthy, "Service should be healthy")
-		t.Logf("HealthCheck: version=%s, uptime=%d", resp.Version, resp.Uptime)
-	})
-
-	// Test 2: IssueToken (public method)
-	// Use empty project_id for legacy mode or default_project_id from config
-	t.Run("IssueToken", func(t *testing.T) {
-		req := &authv1.IssueTokenRequest{
-			UserId:    "test-user-123",
-			ProjectId: "", // Empty for legacy mode
-		}
-
-		resp, err := cl.IssueToken(ctx, req)
-		require.NoError(t, err, "IssueToken should work without auth")
-		assert.NotEmpty(t, resp.AccessToken, "Access token should be returned")
-		assert.NotEmpty(t, resp.RefreshToken, "Refresh token should be returned")
-		t.Logf("IssueToken: access_token length=%d, expires_at=%d", len(resp.AccessToken), resp.AccessTokenExpiresAt)
-	})
-
-	// Test 3: ValidateToken (optional auth - should work without auth in v1.0+)
-	t.Run("ValidateToken", func(t *testing.T) {
-		// Issue a token first
-		issueReq := &authv1.IssueTokenRequest{
-			UserId:    "test-user-456",
-			ProjectId: "", // Empty for legacy mode
-		}
-		issueResp, err := cl.IssueToken(ctx, issueReq)
-		require.NoError(t, err)
-
-		req := &authv1.ValidateTokenRequest{
-			Token:          issueResp.AccessToken,
-			CheckBlacklist: true,
-		}
-
-		resp, err := cl.ValidateToken(ctx, req)
-		require.NoError(t, err, "ValidateToken should work without auth (v1.0+)")
-		assert.True(t, resp.Valid, "Token should be valid")
-		if resp.Claims != nil {
-			t.Logf("ValidateToken: user_id=%s, expires_at=%d", resp.Claims.UserId, resp.Claims.ExpiresAt)
-		}
-	})
-
-	// Test 4: RefreshToken (public method)
-	t.Run("RefreshToken", func(t *testing.T) {
-		// First issue a token
-		issueReq := &authv1.IssueTokenRequest{
-			UserId:    "test-user-789",
-			ProjectId: "", // Empty for legacy mode
-		}
-		issueResp, err := cl.IssueToken(ctx, issueReq)
-		require.NoError(t, err)
-
-		req := &authv1.RefreshTokenRequest{
-			RefreshToken: issueResp.RefreshToken,
-		}
-
-		resp, err := cl.RefreshToken(ctx, req)
-		require.NoError(t, err, "RefreshToken should work without auth")
-		assert.NotEmpty(t, resp.AccessToken, "New access token should be returned")
-		t.Logf("RefreshToken: new access_token length=%d", len(resp.AccessToken))
-	})
-
-	// Test 5: ParseToken (optional auth - should work without auth in v1.0+)
-	t.Run("ParseToken", func(t *testing.T) {
-		// Issue a token
-		issueReq := &authv1.IssueTokenRequest{
-			UserId:    "test-user-parse",
-			ProjectId: "", // Empty for legacy mode
-		}
-		issueResp, err := cl.IssueToken(ctx, issueReq)
-		require.NoError(t, err)
-
-		req := &authv1.ParseTokenRequest{
-			Token: issueResp.AccessToken,
-		}
-
-		resp, err := cl.ParseToken(ctx, req)
-		require.NoError(t, err, "ParseToken should work without auth (v1.0+)")
-		assert.True(t, resp.Success, "Token should be parsed successfully")
-		if resp.Claims != nil {
-			t.Logf("ParseToken: user_id=%s, token_type=%s", resp.Claims.UserId, resp.Claims.TokenType)
-		}
-	})
-
-	// Test 6: ExtractClaims (optional auth - should work without auth in v1.0+)
-	t.Run("ExtractClaims", func(t *testing.T) {
-		// Issue a token with custom claims
-		issueReq := &authv1.IssueTokenRequest{
-			UserId:    "test-user-extract",
-			ProjectId: "", // Empty for legacy mode
-			Claims: map[string]string{
-				"role": "admin",
-				"team": "backend",
-			},
-		}
-		issueResp, err := cl.IssueToken(ctx, issueReq)
-		require.NoError(t, err)
-
-		req := &authv1.ExtractClaimsRequest{
-			Token:     issueResp.AccessToken,
-			ClaimKeys: []string{"user_id", "role", "team"},
-		}
-
-		resp, err := cl.ExtractClaims(ctx, req)
-		require.NoError(t, err, "ExtractClaims should work without auth (v1.0+)")
-		assert.True(t, resp.Success, "Claims should be extracted successfully")
-		assert.NotEmpty(t, resp.Claims, "Claims should not be empty")
-		t.Logf("ExtractClaims: extracted %d claims", len(resp.Claims))
-	})
-
-	// Test 7: ValidateBatch (optional auth - should work without auth in v1.0+)
-	t.Run("ValidateBatch", func(t *testing.T) {
-		// Issue multiple tokens
-		var tokens []string
-		for i := 0; i < 3; i++ {
-			issueReq := &authv1.IssueTokenRequest{
-				UserId:    "test-user-batch-" + string(rune('0'+i)),
-				ProjectId: "", // Empty for legacy mode
-			}
-			issueResp, err := cl.IssueToken(ctx, issueReq)
-			require.NoError(t, err)
-			tokens = append(tokens, issueResp.AccessToken)
-		}
-
-		req := &authv1.ValidateBatchRequest{
-			Tokens:         tokens,
-			CheckBlacklist: true,
-		}
-
-		resp, err := cl.ValidateBatch(ctx, req)
-		require.NoError(t, err, "ValidateBatch should work without auth (v1.0+)")
-		assert.Len(t, resp.Results, 3, "Should return 3 results")
-		for i, result := range resp.Results {
-			assert.True(t, result.Valid, "Token %d should be valid", i)
-		}
-		t.Logf("ValidateBatch: validated %d tokens", len(resp.Results))
-	})
-
-	// Test 8: GetPublicKey (public method)
-	t.Run("GetPublicKey", func(t *testing.T) {
-		req := &authv1.GetPublicKeyRequest{
-			ProjectId: "", // Empty for legacy mode
-		}
-
-		resp, err := cl.GetPublicKey(ctx, req)
-		require.NoError(t, err, "GetPublicKey should work without auth")
-		assert.NotEmpty(t, resp.PublicKeyPem, "Public key should be returned")
-		assert.NotEmpty(t, resp.Algorithm, "Algorithm should be returned")
-		t.Logf("GetPublicKey: algorithm=%s, key_id=%s", resp.Algorithm, resp.KeyId)
-	})
-
-	// Test 9: IssueServiceToken (optional service auth - should work without auth in v1.0+)
-	// Note: Current server version (v0.9.0) may still require service auth
-	t.Run("IssueServiceToken", func(t *testing.T) {
-		req := &authv1.IssueServiceTokenRequest{
-			SourceService: "test-service",
-			TargetService: "target-service",
-			UserId:        "test-user-service",
-			ProjectId:     "", // Empty for legacy mode
-		}
-
-		resp, err := cl.IssueServiceToken(ctx, req)
-		// May fail if server doesn't support optional service auth yet (v0.9.0)
-		if err != nil {
-			t.Logf("IssueServiceToken without service auth (may fail on v0.9.0): %v", err)
-			// This is expected if server version doesn't support optional service auth
-		} else {
-			assert.NotEmpty(t, resp.AccessToken, "Service token should be returned")
-			t.Logf("IssueServiceToken: token length=%d", len(resp.AccessToken))
-		}
-	})
-
-	// Test 10: RevokeToken (requires JWT - should fail without JWT)
-	t.Run("RevokeToken_RequiresJWT", func(t *testing.T) {
-		// First issue a token
-		issueReq := &authv1.IssueTokenRequest{
-			UserId:    "test-user-revoke",
-			ProjectId: "", // Empty for legacy mode
-		}
-		issueResp, err := cl.IssueToken(ctx, issueReq)
-		require.NoError(t, err)
-
-		req := &authv1.RevokeTokenRequest{
-			Token: issueResp.AccessToken,
-		}
-
-		_, err = cl.RevokeToken(ctx, req)
-		// Should fail without JWT token in config (but might succeed if server doesn't enforce)
-		// In v1.0, this might work depending on server config
-		t.Logf("RevokeToken without JWT result: err=%v", err)
-	})
-
-	// Test 11: CreateAPIKey (requires JWT - should fail without JWT)
-	t.Run("CreateAPIKey_RequiresJWT", func(t *testing.T) {
-		req := &authv1.CreateAPIKeyRequest{
-			ProjectId: "", // Empty for legacy mode
-			Name:      "test-api-key",
-			Scopes:    []string{"read", "write"},
-		}
-
-		_, err := cl.CreateAPIKey(ctx, req)
-		// Should fail without JWT token in config (but might succeed if server doesn't enforce)
-		// In v1.0, this might work depending on server config
-		t.Logf("CreateAPIKey without JWT result: err=%v", err)
-	})
+	// Run all method tests
+	runAllMethodsTests(t, scenario, cl)
 
 	t.Log("All tests without TLS and auth completed successfully")
+}
+
+// TestAllMethodsScenariosV1 tests all methods across 4 different scenarios:
+// 1. No TLS, No Auth
+// 2. No TLS, With Service Auth
+// 3. With TLS, No Auth
+// 4. With TLS, With Service Auth
+//
+// This test requires a running auth-service.
+// Run with: go test -v -integration=true -run TestAllMethodsScenariosV1
+func TestAllMethodsScenariosV1(t *testing.T) {
+	if !*runIntegrationTests {
+		t.Skip("Skipping integration test. Run with -integration=true to execute")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Detect TLS requirement
+	tlsRequired, err := detectTLSRequirement(*serviceAddress)
+	if err != nil {
+		t.Fatalf("Failed to detect TLS requirement: %v", err)
+	}
+
+	// Create a temporary client to obtain JWT token for methods requiring JWT
+	// This will be used for RevokeToken and CreateAPIKey tests
+	var jwtToken string
+	tempConfig := DefaultConfig(*serviceAddress)
+	tempConfig.TLS = &TLSConfig{
+		Enabled:            tlsRequired,
+		InsecureSkipVerify: tlsRequired, // For testing
+	}
+	tempClient, err := NewClient(tempConfig)
+	if err == nil {
+		defer tempClient.Close()
+		// Try to issue a token to use as JWT for protected methods
+		issueReq := &authv1.IssueTokenRequest{
+			UserId:    "test-jwt-user",
+			ProjectId: "", // Empty for legacy mode
+		}
+		issueResp, err := tempClient.IssueToken(ctx, issueReq)
+		if err == nil {
+			jwtToken = issueResp.AccessToken
+		}
+	}
+
+	// Define all test scenarios
+	scenarios := []*TestScenarioConfig{
+		{
+			Name:        "NoTLS_NoAuth",
+			TLSEnabled:  false,
+			ServiceAuth: false,
+			JWTToken:    jwtToken, // Use JWT token if available
+		},
+		{
+			Name:          "NoTLS_WithServiceAuth",
+			TLSEnabled:    false,
+			ServiceAuth:   true,
+			ServiceName:   "identity-service",
+			ServiceSecret: "identity-service-secret-abc123def456",
+			JWTToken:      jwtToken, // Use JWT token if available
+		},
+		{
+			Name:        "WithTLS_NoAuth",
+			TLSEnabled:  true,
+			ServiceAuth: false,
+			JWTToken:    jwtToken, // Use JWT token if available
+		},
+		{
+			Name:          "WithTLS_WithServiceAuth",
+			TLSEnabled:    true,
+			ServiceAuth:   true,
+			ServiceName:   "identity-service",
+			ServiceSecret: "identity-service-secret-abc123def456",
+			JWTToken:      jwtToken, // Use JWT token if available
+		},
+	}
+
+	// Run tests for each scenario
+	for _, scenario := range scenarios {
+		t.Run(scenario.Name, func(t *testing.T) {
+			// Skip TLS scenarios if server doesn't support TLS
+			if scenario.TLSEnabled && !tlsRequired {
+				t.Skipf("Skipping TLS scenario %s: server does not require TLS", scenario.Name)
+			}
+
+			// Create client for this scenario
+			cl, err := createTestClient(scenario, *serviceAddress)
+			if err != nil {
+				errStr := strings.ToLower(err.Error())
+				if strings.Contains(errStr, "tls") || strings.Contains(errStr, "certificate") {
+					t.Skipf("Skipping scenario %s due to TLS connection error: %v", scenario.Name, err)
+				} else {
+					t.Fatalf("Failed to create client for scenario %s: %v", scenario.Name, err)
+				}
+			}
+			defer cl.Close()
+
+			// Verify connection with health check
+			healthCtx, healthCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer healthCancel()
+			_, err = cl.HealthCheck(healthCtx)
+			if err != nil {
+				// If connection failed, skip this scenario gracefully
+				t.Skipf("Skipping scenario %s: service not accessible: %v", scenario.Name, err)
+			}
+
+			t.Logf("Testing scenario: %s (TLS=%v, ServiceAuth=%v)", scenario.Name, scenario.TLSEnabled, scenario.ServiceAuth)
+
+			// Run all method tests for this scenario
+			runAllMethodsTests(t, scenario, cl)
+		})
+	}
+
+	t.Log("All scenario tests completed")
 }
