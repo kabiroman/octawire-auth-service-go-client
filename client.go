@@ -11,6 +11,9 @@ import (
 	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
 )
 
+// Version is the current version of the client library
+const Version = "0.9.4"
+
 // Client представляет клиент для Auth Service
 type Client struct {
 	conn         *grpc.ClientConn

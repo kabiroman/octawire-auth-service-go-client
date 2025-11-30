@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2025-11-30
+
+### Изменено
+- Обновлен для соответствия Auth Service v1.0 спецификации
+- Изменен ключ метаданных gRPC обратно на `project-id` (удалена поддержка `default-project-id`)
+- Service authentication теперь опциональна для методов IssueServiceToken, ValidateToken, ParseToken, ExtractClaims, ValidateBatch
+
+### Добавлено
+- Константа `Version` для программного доступа к версии клиента
+- Полная поддержка Auth Service Protocol v1.0:
+  * Опциональная service authentication для методов валидации
+  * Условная передача JWT токена только для методов, требующих JWT (RevokeToken, APIKeyService)
+  * Поддержка `project-id` в gRPC metadata (v1.0+)
+- Рефакторинг интеграционных тестов:
+  * Переиспользуемые функции для тестирования различных сценариев
+  * Тест `TestAllMethodsScenariosV1` покрывающий 4 сценария (TLS/no-TLS × auth/no-auth)
+  * Автоматическое определение TLS требований сервера
+  * Graceful skip для неподдерживаемых сценариев
+- Обновлена документация TESTING.md:
+  * Добавлен раздел о юнит-тестах с полным списком покрытия
+  * Детальные инструкции по настройке и запуску интеграционных тестов
+  * Инструкции по тестированию различных сценариев через Docker Compose
+  * Переведена на русский язык
+
+### Исправлено
+- Удалена обратная совместимость с `default-project-id` (только `project-id` используется)
+- Исправлена логика добавления JWT токена в metadata (только для требуемых методов)
+- Улучшена обработка project_id в методах, где он не является частью protobuf сообщения
+
+### Тестирование
+- Рефакторинг интеграционных тестов для поддержки 4 различных сценариев
+- Улучшена обработка JWT токенов для методов требующих JWT
+- Добавлены юнит-тесты для проверки метаданных и аутентификации
+- Обновлены примеры для соответствия v1.0 спецификации
+
+### Соответствие спецификациям
+- Полное соответствие спецификации GRPC_METHODS_1.0.md
+- Соответствие требованиям Auth Service v1.0 по опциональной service authentication
+- Корректная обработка JWT аутентификации только для требуемых методов
+
 ## [0.9.3] - 2025-01-28
 
 ### Изменено
@@ -54,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Поддержка API Key Service
 - Примеры использования
 
+[0.9.4]: https://github.com/kabiroman/octawire-auth-service-go-client/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/kabiroman/octawire-auth-service-go-client/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/kabiroman/octawire-auth-service-go-client/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/kabiroman/octawire-auth-service-go-client/releases/tag/v0.9.1
