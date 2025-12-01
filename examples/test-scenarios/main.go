@@ -266,7 +266,7 @@ func (ts *TestSuite) testHealthCheck(ctx context.Context) {
 		return
 	}
 
-	ts.AddResult("HealthCheck", true, nil, fmt.Sprintf("Service healthy: %v, version: %s", resp.Healthy, resp.Version))
+	ts.AddResult("HealthCheck", true, nil, fmt.Sprintf("Service status: %s, version: %s", resp.Status, resp.Version))
 }
 
 func (ts *TestSuite) testIssueServiceTokenWithoutAuth(ctx context.Context) {

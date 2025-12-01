@@ -266,7 +266,29 @@ resp, err := cl.IssueServiceToken(ctx, &authv1.IssueServiceTokenRequest{
 - `ParseToken` - парсинг токена без валидации (authentication опциональна, v1.0+)
 - `ExtractClaims` - извлечение claims из токена (authentication опциональна, v1.0+)
 - `ValidateBatch` - пакетная валидация токенов (authentication опциональна, v1.0+)
-- `HealthCheck` - проверка здоровья сервиса (публичный метод)
+
+#### HealthCheck - Проверка здоровья сервиса
+
+```go
+resp, err := cl.HealthCheck(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+
+switch resp.Status {
+case "healthy":
+    log.Printf("Service is healthy, version: %s, uptime: %d", resp.Version, resp.Uptime)
+case "degraded":
+    log.Printf("Service is degraded: %v", resp.Details)
+case "unhealthy":
+    log.Printf("Service is unhealthy: %v", resp.Details)
+}
+```
+
+Возможные значения `Status`:
+- `"healthy"` - сервис полностью работоспособен
+- `"degraded"` - сервис работает, но с ограничениями (например, Redis недоступен)
+- `"unhealthy"` - сервис не работает корректно
 
 ### API Key Service методы
 

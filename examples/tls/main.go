@@ -57,6 +57,7 @@ func main() {
 		log.Fatalf("Failed to check health: %v", err)
 	}
 
-	fmt.Printf("Service is healthy: %v\n", healthResp.Healthy)
+	fmt.Printf("Service status: %s\n", healthResp.Status)
 	fmt.Printf("Version: %s\n", healthResp.Version)
+	fmt.Printf("Uptime: %d seconds\n", healthResp.Uptime)
 }

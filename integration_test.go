@@ -17,6 +17,7 @@ var (
 	runIntegrationTests = flag.Bool("integration", false, "Run integration tests that require a running service")
 	serviceAddress      = flag.String("service-address", "localhost:50051", "Address of the auth-service for integration tests")
 	testAPIKey          = flag.String("api-key", "auth-service-development-key-xyz789uvw456", "API key for authentication")
+	testProjectID       = flag.String("project-id", "your-app-api", "Project ID for testing (use jwt.audience from server config)")
 )
 
 // TestScenarioConfig содержит конфигурацию для тестового сценария
@@ -59,15 +60,15 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 	t.Run("HealthCheck", func(t *testing.T) {
 		resp, err := cl.HealthCheck(ctx)
 		require.NoError(t, err, "HealthCheck should work")
-		assert.True(t, resp.Healthy, "Service should be healthy")
-		t.Logf("HealthCheck: version=%s, uptime=%d", resp.Version, resp.Uptime)
+		assert.Equal(t, "healthy", resp.Status, "Service should be healthy")
+		t.Logf("HealthCheck: status=%s, version=%s, uptime=%d", resp.Status, resp.Version, resp.Uptime)
 	})
 
 	// Test 2: IssueToken (public method)
 	t.Run("IssueToken", func(t *testing.T) {
 		req := &authv1.IssueTokenRequest{
 			UserId:    "test-user-123",
-			ProjectId: "", // Empty for legacy mode
+			ProjectId: *testProjectID,
 		}
 
 		resp, err := cl.IssueToken(ctx, req)
@@ -82,7 +83,7 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		// Issue a token first
 		issueReq := &authv1.IssueTokenRequest{
 			UserId:    "test-user-456",
-			ProjectId: "", // Empty for legacy mode
+			ProjectId: *testProjectID,
 		}
 		issueResp, err := cl.IssueToken(ctx, issueReq)
 		require.NoError(t, err)
@@ -90,6 +91,7 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		req := &authv1.ValidateTokenRequest{
 			Token:          issueResp.AccessToken,
 			CheckBlacklist: true,
+			ProjectId:      *testProjectID,
 		}
 
 		resp, err := cl.ValidateToken(ctx, req)
@@ -105,13 +107,14 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		// First issue a token
 		issueReq := &authv1.IssueTokenRequest{
 			UserId:    "test-user-789",
-			ProjectId: "", // Empty for legacy mode
+			ProjectId: *testProjectID,
 		}
 		issueResp, err := cl.IssueToken(ctx, issueReq)
 		require.NoError(t, err)
 
 		req := &authv1.RefreshTokenRequest{
 			RefreshToken: issueResp.RefreshToken,
+			ProjectId:    *testProjectID,
 		}
 
 		resp, err := cl.RefreshToken(ctx, req)
@@ -125,13 +128,14 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		// Issue a token
 		issueReq := &authv1.IssueTokenRequest{
 			UserId:    "test-user-parse",
-			ProjectId: "", // Empty for legacy mode
+			ProjectId: *testProjectID,
 		}
 		issueResp, err := cl.IssueToken(ctx, issueReq)
 		require.NoError(t, err)
 
 		req := &authv1.ParseTokenRequest{
-			Token: issueResp.AccessToken,
+			Token:     issueResp.AccessToken,
+			ProjectId: *testProjectID,
 		}
 
 		resp, err := cl.ParseToken(ctx, req)
@@ -147,7 +151,7 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		// Issue a token with custom claims
 		issueReq := &authv1.IssueTokenRequest{
 			UserId:    "test-user-extract",
-			ProjectId: "", // Empty for legacy mode
+			ProjectId: *testProjectID,
 			Claims: map[string]string{
 				"role": "admin",
 				"team": "backend",
@@ -159,6 +163,7 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		req := &authv1.ExtractClaimsRequest{
 			Token:     issueResp.AccessToken,
 			ClaimKeys: []string{"user_id", "role", "team"},
+			ProjectId: *testProjectID,
 		}
 
 		resp, err := cl.ExtractClaims(ctx, req)
@@ -175,7 +180,7 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		for i := 0; i < 3; i++ {
 			issueReq := &authv1.IssueTokenRequest{
 				UserId:    "test-user-batch-" + string(rune('0'+i)),
-				ProjectId: "", // Empty for legacy mode
+				ProjectId: *testProjectID,
 			}
 			issueResp, err := cl.IssueToken(ctx, issueReq)
 			require.NoError(t, err)
@@ -185,6 +190,7 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		req := &authv1.ValidateBatchRequest{
 			Tokens:         tokens,
 			CheckBlacklist: true,
+			ProjectId:      *testProjectID,
 		}
 
 		resp, err := cl.ValidateBatch(ctx, req)
@@ -199,7 +205,7 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 	// Test 8: GetPublicKey (public method)
 	t.Run("GetPublicKey", func(t *testing.T) {
 		req := &authv1.GetPublicKeyRequest{
-			ProjectId: "", // Empty for legacy mode
+			ProjectId: *testProjectID,
 		}
 
 		resp, err := cl.GetPublicKey(ctx, req)
@@ -215,7 +221,7 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 			SourceService: "test-service",
 			TargetService: "target-service",
 			UserId:        "test-user-service",
-			ProjectId:     "", // Empty for legacy mode
+			ProjectId:     *testProjectID,
 		}
 
 		resp, err := cl.IssueServiceToken(ctx, req)
@@ -233,13 +239,14 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		// First issue a token
 		issueReq := &authv1.IssueTokenRequest{
 			UserId:    "test-user-revoke",
-			ProjectId: "", // Empty for legacy mode
+			ProjectId: *testProjectID,
 		}
 		issueResp, err := cl.IssueToken(ctx, issueReq)
 		require.NoError(t, err)
 
 		req := &authv1.RevokeTokenRequest{
-			Token: issueResp.AccessToken,
+			Token:     issueResp.AccessToken,
+			ProjectId: *testProjectID,
 		}
 
 		_, err = cl.RevokeToken(ctx, req)
@@ -260,27 +267,17 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 			return
 		}
 
-		// In legacy mode, project_id may not be available
-		// Try with empty project_id - server will return error which is expected
 		req := &authv1.CreateAPIKeyRequest{
-			ProjectId: "", // Empty for legacy mode - will fail but that's expected
+			ProjectId: *testProjectID,
 			Name:      "test-api-key",
 			Scopes:    []string{"read", "write"},
 		}
 
-		_, err := cl.CreateAPIKey(ctx, req)
+		resp, err := cl.CreateAPIKey(ctx, req)
 		if err != nil {
-			// In legacy mode without project_id, this is expected to fail
-			errStr := strings.ToLower(err.Error())
-			if strings.Contains(errStr, "project_id") || strings.Contains(errStr, "project") {
-				t.Logf("CreateAPIKey failed as expected in legacy mode (project_id required): %v", err)
-				return
-			}
-			// Other errors are unexpected
-			t.Errorf("CreateAPIKey failed with unexpected error: %v", err)
+			t.Logf("CreateAPIKey failed: %v", err)
 		} else {
-			// Success case - project_id was available or server accepted it
-			t.Logf("CreateAPIKey succeeded")
+			t.Logf("CreateAPIKey succeeded: keyId=%s", resp.KeyId)
 		}
 	})
 }
@@ -439,7 +436,7 @@ func TestAllScenariosIntegration(t *testing.T) {
 			// Create client configuration
 			config := DefaultConfig(*serviceAddress)
 			config.APIKey = *testAPIKey
-			// Don't set ProjectID - use empty string for legacy mode (server uses jwt.audience as project_id)
+			config.ProjectID = *testProjectID
 
 			// Configure service authentication
 			if scenario.serviceAuth {
@@ -482,14 +479,14 @@ func TestAllScenariosIntegration(t *testing.T) {
 					t.Errorf("HealthCheck failed: %v", err)
 					return
 				}
-				assert.True(t, resp.Healthy, "Service should be healthy")
+				assert.Equal(t, "healthy", resp.Status, "Service should be healthy")
 			})
 
 			// Test 2: IssueToken (public method, should always work)
 			t.Run("IssueToken", func(t *testing.T) {
 				req := &authv1.IssueTokenRequest{
 					UserId:    "test-user-123",
-					ProjectId: "", // Empty for legacy mode (server uses jwt.audience as project_id)
+					ProjectId: *testProjectID,
 				}
 				resp, err := cl.IssueToken(ctx, req)
 				if err != nil {
@@ -511,7 +508,7 @@ func TestAllScenariosIntegration(t *testing.T) {
 					SourceService: "identity-service",
 					TargetService: "gateway-service",
 					UserId:        "test-user-123",
-					ProjectId:     "", // Empty for legacy mode (server uses jwt.audience as project_id)
+					ProjectId:     *testProjectID,
 					Ttl:           3600,
 				}
 
@@ -554,7 +551,7 @@ func TestAllScenariosIntegration(t *testing.T) {
 				// First issue a token
 				issueReq := &authv1.IssueTokenRequest{
 					UserId:    "test-user-123",
-					ProjectId: "", // Empty for legacy mode (server uses jwt.audience as project_id)
+					ProjectId: *testProjectID,
 				}
 				issueResp, err := cl.IssueToken(ctx, issueReq)
 				if err != nil {
@@ -564,7 +561,7 @@ func TestAllScenariosIntegration(t *testing.T) {
 				// Create client with JWT token
 				jwtConfig := DefaultConfig(*serviceAddress)
 				jwtConfig.APIKey = *testAPIKey
-				// Don't set ProjectID - use empty string for legacy mode
+				jwtConfig.ProjectID = *testProjectID
 				jwtConfig.JWTToken = issueResp.AccessToken
 
 				// Use same TLS configuration as main client
@@ -589,6 +586,7 @@ func TestAllScenariosIntegration(t *testing.T) {
 				validateReq := &authv1.ValidateTokenRequest{
 					Token:          issueResp.AccessToken,
 					CheckBlacklist: true,
+					ProjectId:      *testProjectID,
 				}
 
 				resp, err := jwtClient.ValidateToken(ctx, validateReq)
@@ -600,11 +598,9 @@ func TestAllScenariosIntegration(t *testing.T) {
 			})
 
 			// Test 5: GetPublicKey (public method, should always work)
-			// Handles both multi-project and legacy single-project modes
 			t.Run("GetPublicKey", func(t *testing.T) {
-				// Use empty project_id for legacy mode
 				req := &authv1.GetPublicKeyRequest{
-					ProjectId: "", // Empty for legacy mode (server uses jwt.audience as project_id)
+					ProjectId: *testProjectID,
 				}
 				resp, err := cl.GetPublicKey(ctx, req)
 
@@ -685,7 +681,7 @@ func TestAllMethodsScenariosV1(t *testing.T) {
 		// Try to issue a token to use as JWT for protected methods
 		issueReq := &authv1.IssueTokenRequest{
 			UserId:    "test-jwt-user",
-			ProjectId: "", // Empty for legacy mode
+			ProjectId: *testProjectID,
 		}
 		issueResp, err := tempClient.IssueToken(ctx, issueReq)
 		if err == nil {

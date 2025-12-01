@@ -5,10 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.4] - 2025-11-30
+## [0.9.4] - 2025-12-01
+
+### BREAKING CHANGES
+- **HealthCheckResponse**: Поле `Healthy` (bool) заменено на `Status` (string)
+  - Возможные значения Status: "healthy", "degraded", "unhealthy"
+  - Добавлено поле `Timestamp` (int64) с Unix timestamp проверки
+  - Миграция: `resp.Healthy` → `resp.Status == "healthy"`
 
 ### Изменено
-- Обновлен для соответствия Auth Service v1.0 спецификации
+- Обновлен для соответствия Auth Service v0.9.4 спецификации (GRPC_METHODS_1.0.json)
 - Изменен ключ метаданных gRPC обратно на `project-id` (удалена поддержка `default-project-id`)
 - Service authentication теперь опциональна для методов IssueServiceToken, ValidateToken, ParseToken, ExtractClaims, ValidateBatch
 
