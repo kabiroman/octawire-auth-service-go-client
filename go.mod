@@ -3,9 +3,9 @@ module github.com/kabiroman/octawire-auth-service-go-client
 go 1.24.0
 
 require (
-	github.com/kabiroman/octawire-auth-service v0.0.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.77.0
+	google.golang.org/protobuf v1.36.10
 )
 
 require (
@@ -16,12 +16,5 @@ require (
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// Для локальной разработки используйте replace:
-// Клиент зависит от proto файлов из auth-service
-// Сервис хранится в https://github.com/kabiroman/octawire-auth-service
-// При использовании в других проектах, убедитесь, что auth-service доступен
-replace github.com/kabiroman/octawire-auth-service => /var/www/national-union.ru/octawire/services/auth-service

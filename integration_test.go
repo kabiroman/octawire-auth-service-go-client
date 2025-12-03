@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

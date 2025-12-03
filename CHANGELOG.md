@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2025-12-03
+
+### BREAKING CHANGES
+- **Proto import path changed**: Import path changed from `github.com/kabiroman/octawire-auth-service/pkg/proto` to `github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1`
+- Migration: Update all imports in your code to use the new path
+
+### Added
+- Embedded compiled proto files in `pkg/proto/auth/v1/` directory
+- Client is now self-contained and does not require access to private auth-service repository
+
+### Removed
+- Dependency on `github.com/kabiroman/octawire-auth-service` (was private)
+- `replace` directive in go.mod
+
+### Fixed
+- Client can now be used in external projects without access to private repositories
+
 ## [0.9.4] - 2025-12-01
 
 ### BREAKING CHANGES

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1"
 )
 
 // cachedKeyInfo содержит информацию о закэшированном ключе
@@ -15,8 +15,8 @@ type cachedKeyInfo struct {
 
 // KeyCache представляет in-memory кэш для публичных ключей
 type KeyCache struct {
-	mu    sync.RWMutex
-	cache map[string]map[string]*cachedKeyInfo // project_id -> key_id -> cachedKeyInfo
+	mu     sync.RWMutex
+	cache  map[string]map[string]*cachedKeyInfo // project_id -> key_id -> cachedKeyInfo
 	config *KeyCacheConfig
 }
 
@@ -29,7 +29,7 @@ func NewKeyCache(config *KeyCacheConfig) *KeyCache {
 		}
 	}
 	return &KeyCache{
-		cache: make(map[string]map[string]*cachedKeyInfo),
+		cache:  make(map[string]map[string]*cachedKeyInfo),
 		config: config,
 	}
 }
@@ -229,4 +229,3 @@ func (kc *KeyCache) CleanupExpired() {
 		}
 	}
 }
-

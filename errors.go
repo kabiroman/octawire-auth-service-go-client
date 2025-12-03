@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1"
 )
 
 // Предопределенные ошибки клиента
@@ -54,14 +54,14 @@ func WrapError(err error) error {
 		// Если это не gRPC ошибка, проверяем на ошибки подключения/TLS
 		errStr := err.Error()
 		errLower := strings.ToLower(errStr)
-		
+
 		// Проверяем на типичные ошибки TLS/подключения
 		if strings.Contains(errLower, "tls") || strings.Contains(errLower, "certificate") ||
 			strings.Contains(errLower, "connection refused") || strings.Contains(errLower, "no such host") ||
 			strings.Contains(errLower, "timeout") || strings.Contains(errLower, "dial") {
 			return fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 		}
-		
+
 		// Если это не gRPC ошибка, возвращаем как есть
 		return err
 	}
@@ -71,13 +71,13 @@ func WrapError(err error) error {
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
 		msg := st.Message()
 		msgLower := strings.ToLower(msg)
-		
+
 		// Проверяем на специфичные ошибки подключения
 		if strings.Contains(msgLower, "tls") || strings.Contains(msgLower, "certificate") ||
 			strings.Contains(msgLower, "connection refused") || strings.Contains(msgLower, "no such host") {
 			return fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 		}
-		
+
 		return fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 	case codes.ResourceExhausted:
 		return fmt.Errorf("%w: %v", ErrRateLimitExceeded, err)
@@ -197,5 +197,3 @@ func IsRetryableError(err error) bool {
 		return false
 	}
 }
-
-
