@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/kabiroman/octawire-auth-service-go-client"
-	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1"
 )
 
 func main() {
@@ -63,6 +63,7 @@ func main() {
 	validateReq := &authv1.ValidateTokenRequest{
 		Token:          issueResp.AccessToken,
 		CheckBlacklist: true,
+		ProjectId:      "default-project-id", // Required (v0.9.5+)
 	}
 
 	validateResp, err := jwtClient.ValidateToken(ctx, validateReq)
@@ -74,8 +75,21 @@ func main() {
 		fmt.Println("Token is valid")
 		if validateResp.Claims != nil {
 			fmt.Printf("User ID: %s\n", validateResp.Claims.UserId)
+			fmt.Printf("Project ID: %s\n", validateResp.Claims.ProjectId)
 			fmt.Printf("Issued At: %s\n", time.Unix(validateResp.Claims.IssuedAt, 0))
 			fmt.Printf("Expires At: %s\n", time.Unix(validateResp.Claims.ExpiresAt, 0))
+			if validateResp.Claims.DeviceId != "" {
+				fmt.Printf("Device ID: %s\n", validateResp.Claims.DeviceId)
+			}
+			if validateResp.Claims.Roles != "" {
+				fmt.Printf("Roles: %s\n", validateResp.Claims.Roles)
+			}
+			if validateResp.Claims.Email != "" {
+				fmt.Printf("Email: %s\n", validateResp.Claims.Email)
+			}
+			if validateResp.Claims.Username != "" {
+				fmt.Printf("Username: %s\n", validateResp.Claims.Username)
+			}
 		}
 	} else {
 		fmt.Printf("Token is invalid: %s (code: %d)\n", validateResp.Error, validateResp.ErrorCode)
@@ -85,6 +99,7 @@ func main() {
 	fmt.Println("\n=== RefreshToken ===")
 	refreshReq := &authv1.RefreshTokenRequest{
 		RefreshToken: issueResp.RefreshToken,
+		ProjectId:    "default-project-id", // Required (v0.9.5+)
 	}
 
 	refreshResp, err := cl.RefreshToken(ctx, refreshReq)

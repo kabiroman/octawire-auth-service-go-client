@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/kabiroman/octawire-auth-service-go-client"
-	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1"
 )
 
 func main() {
@@ -18,7 +18,7 @@ func main() {
 	// Настраиваем кэш ключей
 	config.KeyCache = &client.KeyCacheConfig{
 		TTL:     1 * time.Hour, // Время жизни в кэше (если не указано cache_until)
-		MaxSize: 100,            // Максимальное количество проектов в кэше
+		MaxSize: 100,           // Максимальное количество проектов в кэше
 	}
 
 	// Создаем клиент
@@ -97,4 +97,3 @@ func main() {
 	fmt.Printf("Public Key: %s\n", keyResp3.PublicKeyPem)
 	fmt.Printf("Time taken: %v\n", elapsed)
 }
-

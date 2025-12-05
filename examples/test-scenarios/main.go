@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/kabiroman/octawire-auth-service-go-client"
-	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1"
 )
 
 type TestResult struct {
@@ -224,6 +224,7 @@ func (ts *TestSuite) testRefreshToken(ctx context.Context) {
 	// Now refresh it
 	req := &authv1.RefreshTokenRequest{
 		RefreshToken: issueResp.RefreshToken,
+		ProjectId:    "default-project-id", // Required (v0.9.5+)
 	}
 
 	resp, err := ts.Client.RefreshToken(ctx, req)
@@ -455,7 +456,8 @@ func (ts *TestSuite) testParseTokenWithJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.ParseTokenRequest{
-		Token: jwtTokenResp.AccessToken,
+		Token:     jwtTokenResp.AccessToken,
+		ProjectId: "default-project-id", // Required (v0.9.5+)
 	}
 
 	resp, err := cl.ParseToken(ctx, req)
@@ -498,6 +500,7 @@ func (ts *TestSuite) testExtractClaimsWithJWT(ctx context.Context) {
 	req := &authv1.ExtractClaimsRequest{
 		Token:     jwtTokenResp.AccessToken,
 		ClaimKeys: []string{"user_id", "role"},
+		ProjectId: "default-project-id", // Required (v0.9.5+)
 	}
 
 	resp, err := cl.ExtractClaims(ctx, req)
@@ -535,8 +538,9 @@ func (ts *TestSuite) testRevokeTokenWithJWT(ctx context.Context) {
 	defer cl.Close()
 
 	req := &authv1.RevokeTokenRequest{
-		Token: jwtTokenResp.AccessToken,
-		Ttl:   3600,
+		Token:     jwtTokenResp.AccessToken,
+		Ttl:       3600,
+		ProjectId: "default-project-id", // Required (v0.9.5+)
 	}
 
 	resp, err := cl.RevokeToken(ctx, req)
@@ -586,6 +590,7 @@ func (ts *TestSuite) testValidateBatchWithJWT(ctx context.Context) {
 	req := &authv1.ValidateBatchRequest{
 		Tokens:         []string{token1Resp.AccessToken, token2Resp.AccessToken},
 		CheckBlacklist: true,
+		ProjectId:      "default-project-id", // Required (v0.9.5+)
 	}
 
 	resp, err := cl.ValidateBatch(ctx, req)

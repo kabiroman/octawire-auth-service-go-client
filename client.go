@@ -12,7 +12,7 @@ import (
 )
 
 // Version is the current version of the client library
-const Version = "0.9.4"
+const Version = "0.9.5"
 
 // Client представляет клиент для Auth Service
 type Client struct {

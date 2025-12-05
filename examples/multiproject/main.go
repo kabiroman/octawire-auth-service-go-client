@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/kabiroman/octawire-auth-service-go-client"
-	authv1 "github.com/kabiroman/octawire-auth-service/pkg/proto"
+	authv1 "github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1"
 )
 
 func main() {

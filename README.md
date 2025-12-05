@@ -204,13 +204,26 @@ cl, _ := client.NewClient(config)
 // Валидация токена
 // Токен в поле Token - это токен, который валидируется, а не токен для аутентификации запроса
 resp, err := cl.ValidateToken(ctx, &authv1.ValidateTokenRequest{
-    Token:         "jwt-token-to-validate",
+    Token:          "jwt-token-to-validate",
     CheckBlacklist: true,
+    ProjectId:      "project-id", // Required (v0.9.5+)
 })
 
 if resp.Valid {
     // Токен валиден
     claims := resp.Claims
+    // Access standard fields directly (v0.9.5+)
+    userID := claims.UserId
+    projectID := claims.ProjectId
+    deviceID := claims.DeviceId
+    roles := claims.Roles
+    email := claims.Email
+    username := claims.Username
+    
+    // For service tokens
+    sourceService := claims.SourceService
+    targetService := claims.TargetService
+    userIDInContext := claims.UserIdInContext
     // ...
 }
 ```
@@ -220,7 +233,7 @@ if resp.Valid {
 ```go
 resp, err := cl.RefreshToken(ctx, &authv1.RefreshTokenRequest{
     RefreshToken: "refresh-token",
-    ProjectId:    "project-id", // Required (v0.9.3+)
+    ProjectId:    "project-id", // Required (v0.9.5+)
 })
 ```
 
@@ -492,6 +505,63 @@ go run main.go -scenario dev-sa-true
 - `prod-sa-true` - PROD с service_auth включен
 
 Интеграционные тесты автоматически определяют требования TLS и адаптируются к конфигурации сервера.
+
+## Migration Guide (v0.9.5)
+
+### Breaking Changes: TokenClaims Structure
+
+В версии 0.9.5 структура `TokenClaims` была обновлена: удалено поле `CustomClaims`, добавлены явные поля для всех стандартных claims.
+
+#### До (v0.9.4 и ранее):
+
+```go
+if resp.Valid && resp.Claims != nil {
+    // Доступ через map
+    projectID := resp.Claims.CustomClaims["project_id"]
+    deviceID := resp.Claims.CustomClaims["device_id"]
+    roles := resp.Claims.CustomClaims["roles"]
+    email := resp.Claims.CustomClaims["email"]
+    username := resp.Claims.CustomClaims["username"]
+}
+```
+
+#### После (v0.9.5+):
+
+```go
+if resp.Valid && resp.Claims != nil {
+    // Прямой доступ к полям
+    projectID := resp.Claims.ProjectId
+    deviceID := resp.Claims.DeviceId
+    roles := resp.Claims.Roles
+    email := resp.Claims.Email
+    username := resp.Claims.Username
+    
+    // Для service токенов
+    sourceService := resp.Claims.SourceService
+    targetService := resp.Claims.TargetService
+    userIDInContext := resp.Claims.UserIdInContext
+}
+```
+
+#### Миграция по полям:
+
+| Старый способ (v0.9.4) | Новый способ (v0.9.5+) |
+|------------------------|-------------------------|
+| `claims.CustomClaims["project_id"]` | `claims.ProjectId` |
+| `claims.CustomClaims["device_id"]` | `claims.DeviceId` |
+| `claims.CustomClaims["roles"]` | `claims.Roles` |
+| `claims.CustomClaims["email"]` | `claims.Email` |
+| `claims.CustomClaims["username"]` | `claims.Username` |
+| `claims.CustomClaims["source_service"]` | `claims.SourceService` |
+| `claims.CustomClaims["target_service"]` | `claims.TargetService` |
+| `claims.CustomClaims["user_id"]` (в service токенах) | `claims.UserIdInContext` |
+
+#### Преимущества новой структуры:
+
+- **Типобезопасность**: Поля имеют правильные типы (string, int64)
+- **Производительность**: Нет необходимости в map lookup
+- **Автодополнение**: IDE может предложить доступные поля
+- **Документация**: Поля явно описаны в proto файле
 
 ## Репозиторий
 

@@ -5,7 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.5] - 2025-12-03
+## [0.9.5] - 2025-12-05
+
+### BREAKING CHANGES
+- **TokenClaims structure updated**: Removed `CustomClaims` field, added explicit fields for standard claims
+  - Removed: `CustomClaims map[string]string`
+  - Added explicit fields: `ProjectId`, `DeviceId`, `Roles`, `Email`, `Username`, `SourceService`, `TargetService`, `UserIdInContext`
+  - Migration: Update code from `claims.CustomClaims["project_id"]` to `claims.ProjectId`
+  - Migration: Update code from `claims.CustomClaims["device_id"]` to `claims.DeviceId`
+  - Migration: Update code from `claims.CustomClaims["roles"]` to `claims.Roles`
+  - Migration: Update code from `claims.CustomClaims["email"]` to `claims.Email`
+  - Migration: Update code from `claims.CustomClaims["username"]` to `claims.Username`
+  - Migration: Update code from `claims.CustomClaims["source_service"]` to `claims.SourceService`
+  - Migration: Update code from `claims.CustomClaims["target_service"]` to `claims.TargetService`
+  - Migration: Update code from `claims.CustomClaims["user_id"]` (in service tokens) to `claims.UserIdInContext`
+
+### Added
+- Explicit fields in `TokenClaims` for all standard claims (16 fields total)
+  - Standard JWT claims: `UserId`, `IssuedAt`, `ExpiresAt`, `Issuer`, `Audience`, `JwtId`
+  - Required custom claims: `TokenType`, `ProjectId`, `KeyId`
+  - Optional claims: `DeviceId`, `Roles`, `Email`, `Username`
+  - Service token claims: `SourceService`, `TargetService`, `UserIdInContext`
+- Updated examples to demonstrate usage of new explicit fields
+- Enhanced integration tests to verify new fields in TokenClaims
+
+### Updated
+- Proto files synchronized with auth-service v0.9.5
+- All examples updated to use new TokenClaims fields
+- Integration tests updated to check new fields
+
+### Removed
+- `CustomClaims` map field from `TokenClaims` (replaced with explicit fields)
+
+## [0.9.4] - 2025-12-01
 
 ### BREAKING CHANGES
 - **Proto import path changed**: Import path changed from `github.com/kabiroman/octawire-auth-service/pkg/proto` to `github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1`

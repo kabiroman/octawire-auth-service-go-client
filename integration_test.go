@@ -98,7 +98,15 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		require.NoError(t, err, "ValidateToken should work (v1.0+)")
 		assert.True(t, resp.Valid, "Token should be valid")
 		if resp.Claims != nil {
-			t.Logf("ValidateToken: user_id=%s, expires_at=%d", resp.Claims.UserId, resp.Claims.ExpiresAt)
+			t.Logf("ValidateToken: user_id=%s, project_id=%s, expires_at=%d", resp.Claims.UserId, resp.Claims.ProjectId, resp.Claims.ExpiresAt)
+			// Verify new fields are available
+			assert.NotEmpty(t, resp.Claims.ProjectId, "ProjectId should be set")
+			if resp.Claims.DeviceId != "" {
+				t.Logf("  device_id=%s", resp.Claims.DeviceId)
+			}
+			if resp.Claims.Roles != "" {
+				t.Logf("  roles=%s", resp.Claims.Roles)
+			}
 		}
 	})
 
@@ -142,7 +150,9 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		require.NoError(t, err, "ParseToken should work (v1.0+)")
 		assert.True(t, resp.Success, "Token should be parsed successfully")
 		if resp.Claims != nil {
-			t.Logf("ParseToken: user_id=%s, token_type=%s", resp.Claims.UserId, resp.Claims.TokenType)
+			t.Logf("ParseToken: user_id=%s, project_id=%s, token_type=%s", resp.Claims.UserId, resp.Claims.ProjectId, resp.Claims.TokenType)
+			// Verify new fields are available
+			assert.NotEmpty(t, resp.Claims.ProjectId, "ProjectId should be set")
 		}
 	})
 
@@ -231,6 +241,21 @@ func runAllMethodsTests(t *testing.T, config *TestScenarioConfig, cl *Client) {
 		} else {
 			assert.NotEmpty(t, resp.AccessToken, "Service token should be returned")
 			t.Logf("IssueServiceToken: token length=%d", len(resp.AccessToken))
+
+			// Validate service token to check new fields
+			validateReq := &authv1.ValidateTokenRequest{
+				Token:          resp.AccessToken,
+				CheckBlacklist: false,
+				ProjectId:      *testProjectID,
+			}
+			validateResp, err := cl.ValidateToken(ctx, validateReq)
+			if err == nil && validateResp.Valid && validateResp.Claims != nil {
+				t.Logf("Service token claims: source_service=%s, target_service=%s, user_id_in_context=%s",
+					validateResp.Claims.SourceService, validateResp.Claims.TargetService, validateResp.Claims.UserIdInContext)
+				assert.Equal(t, "test-service", validateResp.Claims.SourceService, "SourceService should match")
+				assert.Equal(t, "target-service", validateResp.Claims.TargetService, "TargetService should match")
+				assert.Equal(t, "test-user-service", validateResp.Claims.UserIdInContext, "UserIdInContext should match")
+			}
 		}
 	})
 

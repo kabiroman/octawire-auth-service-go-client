@@ -1,0 +1,638 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/kabiroman/octawire-auth-service-go-client/pkg/proto/auth/v1;authv1";
+
+// Auth Service - централизованное управление аутентификацией и авторизацией
+// Объединяет JWT токены (пользовательские и межсервисные) и API ключи
+
+// JWTService - управление JWT токенами
+service JWTService {
+  // Пользовательские токены
+  // IssueToken - выдача нового JWT токена (access + refresh)
+  rpc IssueToken(IssueTokenRequest) returns (IssueTokenResponse);
+  
+  // RefreshToken - обновление токена (выдача нового токена на основе refresh token)
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  
+  // Сервисные токены
+  // IssueServiceToken - выдача межсервисного JWT токена
+  rpc IssueServiceToken(IssueServiceTokenRequest) returns (IssueTokenResponse);
+  
+  // Валидация и утилиты
+  // ValidateToken - валидация токена (проверка подписи, срока действия, blacklist)
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  
+  // ParseToken - парсинг токена без валидации (извлечение claims)
+  rpc ParseToken(ParseTokenRequest) returns (ParseTokenResponse);
+  
+  // ExtractClaims - извлечение claims из токена (без валидации)
+  rpc ExtractClaims(ExtractClaimsRequest) returns (ExtractClaimsResponse);
+  
+  // RevokeToken - отзыв токена (добавление в blacklist)
+  rpc RevokeToken(RevokeTokenRequest) returns (RevokeTokenResponse);
+  
+  // ValidateBatch - пакетная валидация токенов
+  rpc ValidateBatch(ValidateBatchRequest) returns (ValidateBatchResponse);
+  
+  // GetPublicKey - получение публичного ключа для проекта (для локальной валидации)
+  // Позволяет другим сервисам получать публичные ключи для локальной проверки подписи
+  rpc GetPublicKey(GetPublicKeyRequest) returns (GetPublicKeyResponse);
+  
+  // HealthCheck - проверка здоровья сервиса
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// APIKeyService - управление API ключами
+service APIKeyService {
+  // CreateAPIKey - создание нового API ключа
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
+  
+  // ValidateAPIKey - валидация API ключа
+  rpc ValidateAPIKey(ValidateAPIKeyRequest) returns (ValidateAPIKeyResponse);
+  
+  // RevokeAPIKey - отзыв API ключа
+  rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
+  
+  // ListAPIKeys - список API ключей для проекта/пользователя
+  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse);
+}
+
+// IssueTokenRequest - запрос на выдачу токена
+//
+// Этот запрос создает JWT токен со следующей структурой:
+// - Стандартные claims: sub (из user_id), iat, exp, iss, aud, jti (генерируются автоматически)
+// - Обязательные custom claims: project_id (из project_id), type (из token_type или "access")
+// - Опциональные custom claims: device_id (из device_id), + все из claims
+//
+// См. структуру токена: api/schemas/JWT_PAYLOAD_ACCESS.schema.json
+message IssueTokenRequest {
+  // User ID пользователя - попадет в JWT claim "sub"
+  string user_id = 1;
+  
+  // Дополнительные claims для включения в токен (например: roles, email, username)
+  // Все значения должны быть строками
+  // Эти claims будут добавлены в JWT токен "as is"
+  // Пример: {"roles": "user,admin", "email": "user@example.com"}
+  map<string, string> claims = 2;
+  
+  // Время жизни access token (в секундах, по умолчанию из конфигурации проекта)
+  int64 access_token_ttl = 3;
+  
+  // Время жизни refresh token (в секундах, по умолчанию из конфигурации проекта)
+  int64 refresh_token_ttl = 4;
+  
+  // Идентификатор устройства - попадет в JWT claim "device_id" (опционально)
+  string device_id = 5;
+  
+  // Project ID (UUID) - попадет в JWT claim "project_id" (обязательно)
+  // Если не указан в запросе, используется default_project_id из конфигурации
+  string project_id = 6;
+  
+  // Тип токена: "access", "refresh" (опционально)
+  // Если не указан, выдаются оба токена (access + refresh)
+  // Если указан "access" - только access token
+  // Если указан "refresh" - только refresh token
+  string token_type = 7;
+}
+
+// IssueTokenResponse - ответ с выданными токенами
+message IssueTokenResponse {
+  // Access token (JWT)
+  string access_token = 1;
+  
+  // Refresh token (JWT)
+  string refresh_token = 2;
+  
+  // Время истечения access token (Unix timestamp)
+  int64 access_token_expires_at = 3;
+  
+  // Время истечения refresh token (Unix timestamp)
+  int64 refresh_token_expires_at = 4;
+  
+  // ID ключа, использованного для подписи
+  string key_id = 5;
+  
+  // TTL access token в секундах (время до истечения)
+  int64 expires_in = 6;
+  
+  // TTL refresh token в секундах (время до истечения)
+  int64 refresh_expires_in = 7;
+}
+
+// RefreshTokenRequest - запрос на обновление токена
+// RefreshTokenRequest - запрос на обновление токена
+//
+// Использует refresh token для получения нового access token (и опционально нового refresh token).
+// Refresh token должен быть валидным и не истекшим.
+message RefreshTokenRequest {
+  // Refresh token - JWT токен типа "refresh"
+  string refresh_token = 1;
+  
+  // Идентификатор устройства (опционально)
+  // Если указан, будет использован для нового access token вместо device_id из refresh token
+  string device_id = 2;
+  
+  // Project ID (UUID) - идентификатор проекта (обязательно для multi-project поддержки)
+  // Должен совпадать с project_id в refresh token
+  // Используется для валидации и получения конфигурации проекта
+  string project_id = 3;
+}
+
+// RefreshTokenResponse - ответ с новыми токенами
+message RefreshTokenResponse {
+  // Новый access token
+  string access_token = 1;
+  
+  // Новый refresh token (опционально, если включена ротация)
+  string refresh_token = 2;
+  
+  // Время истечения access token (Unix timestamp)
+  int64 access_token_expires_at = 3;
+  
+  // Время истечения refresh token (Unix timestamp, если выдан новый)
+  int64 refresh_token_expires_at = 4;
+  
+  // ID ключа, использованного для подписи
+  string key_id = 5;
+  
+  // TTL access token в секундах (время до истечения)
+  int64 expires_in = 6;
+  
+  // TTL refresh token в секундах (время до истечения)
+  int64 refresh_expires_in = 7;
+}
+
+// ValidateTokenRequest - запрос на валидацию токена
+message ValidateTokenRequest {
+  // JWT токен для валидации
+  string token = 1;
+  
+  // Проверять ли blacklist (по умолчанию true)
+  bool check_blacklist = 2;
+  
+  // Project ID (UUID) - идентификатор проекта (обязательно)
+  string project_id = 3;
+}
+
+// ValidateTokenResponse - результат валидации
+message ValidateTokenResponse {
+  // Токен валиден
+  bool valid = 1;
+  
+  // Причина невалидности (если valid = false)
+  string error = 2;
+  
+  // Код ошибки
+  ErrorCode error_code = 3;
+  
+  // Claims из токена (если валиден)
+  TokenClaims claims = 4;
+}
+
+// ParseTokenRequest - запрос на парсинг токена (без валидации)
+message ParseTokenRequest {
+  // JWT токен для парсинга
+  string token = 1;
+  
+  // Project ID (UUID) - идентификатор проекта (обязательно)
+  string project_id = 2;
+}
+
+// ParseTokenResponse - результат парсинга
+message ParseTokenResponse {
+  // Успешно распарсен
+  bool success = 1;
+  
+  // Ошибка парсинга (если success = false)
+  string error = 2;
+  
+  // Claims из токена
+  TokenClaims claims = 3;
+}
+
+// ExtractClaimsRequest - запрос на извлечение claims
+message ExtractClaimsRequest {
+  // JWT токен
+  string token = 1;
+  
+  // Список ключей claims для извлечения (пусто = все)
+  repeated string claim_keys = 2;
+  
+  // Project ID (UUID) - идентификатор проекта (обязательно)
+  string project_id = 3;
+}
+
+// ExtractClaimsResponse - извлеченные claims
+message ExtractClaimsResponse {
+  // Успешно извлечены
+  bool success = 1;
+  
+  // Ошибка (если success = false)
+  string error = 2;
+  
+  // Извлеченные claims
+  map<string, string> claims = 3;
+}
+
+// RevokeTokenRequest - запрос на отзыв токена
+message RevokeTokenRequest {
+  // JWT токен для отзыва
+  string token = 1;
+  
+  // Время жизни в blacklist (в секундах, по умолчанию = TTL токена)
+  int64 ttl = 2;
+  
+  // Project ID (UUID) - идентификатор проекта (обязательно)
+  string project_id = 3;
+}
+
+// RevokeTokenResponse - результат отзыва
+message RevokeTokenResponse {
+  // Токен успешно отозван
+  bool success = 1;
+  
+  // Ошибка (если success = false)
+  string error = 2;
+}
+
+// ValidateBatchRequest - запрос на пакетную валидацию
+message ValidateBatchRequest {
+  // Список токенов для валидации
+  repeated string tokens = 1;
+  
+  // Проверять ли blacklist
+  bool check_blacklist = 2;
+  
+  // Project ID (UUID) - идентификатор проекта (обязательно)
+  string project_id = 3;
+}
+
+// ValidateBatchResponse - результаты пакетной валидации
+message ValidateBatchResponse {
+  // Результаты валидации для каждого токена (индекс соответствует индексу в запросе)
+  repeated ValidateTokenResponse results = 1;
+}
+
+// TokenClaims - структура claims, возвращаемая из ValidateToken и ParseToken
+//
+// ВАЖНО: Эта структура описывает API ответ, а НЕ структуру JWT токена!
+// Реальная структура JWT токена описана в api/schemas/JWT_PAYLOAD.schema.json
+//
+// В JWT токене claims имеют следующую структуру:
+// - Стандартные JWT claims: sub, iat, exp, iss, aud, jti
+// - Обязательные custom claims: project_id, type
+// - Опциональные custom claims: device_id, roles, source_service, target_service, etc.
+//
+// См. полную спецификацию:
+// - JSON Schema: api/schemas/JWT_PAYLOAD.schema.json
+// - Документация: docs/JWT_CLAIMS.md
+message TokenClaims {
+  // Стандартные JWT claims
+  // User ID - из JWT claim "sub"
+  string user_id = 1;
+  
+  // Issued at - из JWT claim "iat" (Unix timestamp)
+  int64 issued_at = 2;
+  
+  // Expires at - из JWT claim "exp" (Unix timestamp)
+  int64 expires_at = 3;
+  
+  // Issuer - из JWT claim "iss"
+  string issuer = 4;
+  
+  // Audience - из JWT claim "aud"
+  string audience = 5;
+  
+  // JWT ID - из JWT claim "jti"
+  string jwt_id = 6;
+  
+  // Обязательные custom claims
+  // Тип токена - из JWT claim "type" ("access", "refresh", "inter_service")
+  string token_type = 7;
+  
+  // Project ID - из JWT claim "project_id" (UUID, обязателен во всех токенах)
+  string project_id = 8;
+  
+  // Опциональные стандартные custom claims (для быстрого доступа)
+  // ID ключа - из JWT claim "key_id" (для ротации ключей)
+  string key_id = 9;
+  
+  // Device ID - из JWT claim "device_id" (для отслеживания сессий)
+  string device_id = 10;
+  
+  // Roles - из JWT claim "roles" (comma-separated string, например "user,admin")
+  string roles = 11;
+  
+  // Email - из JWT claim "email" (email пользователя)
+  string email = 12;
+  
+  // Username - из JWT claim "username" (отображаемое имя пользователя)
+  string username = 13;
+  
+  // Source Service - из JWT claim "source_service" (для inter_service токенов)
+  string source_service = 14;
+  
+  // Target Service - из JWT claim "target_service" (для inter_service токенов)
+  string target_service = 15;
+  
+  // User ID in context - из JWT claim "user_id" (для service токенов с user context)
+  string user_id_in_context = 16;
+}
+
+// ErrorCode - коды ошибок
+enum ErrorCode {
+  ERROR_UNKNOWN = 0;
+  ERROR_INVALID_TOKEN = 1;           // Токен невалиден (синтаксис, формат)
+  ERROR_EXPIRED_TOKEN = 2;           // Токен истек
+  ERROR_INVALID_SIGNATURE = 3;       // Неверная подпись
+  ERROR_TOKEN_REVOKED = 4;           // Токен отозван (в blacklist)
+  ERROR_INVALID_ISSUER = 5;          // Неверный issuer
+  ERROR_INVALID_AUDIENCE = 6;        // Неверный audience
+  ERROR_KEY_NOT_FOUND = 7;           // Ключ для проверки не найден
+  ERROR_INVALID_USER_ID = 8;         // Неверный user_id
+  ERROR_REFRESH_TOKEN_INVALID = 9;   // Refresh token невалиден
+  ERROR_REFRESH_TOKEN_EXPIRED = 10;  // Refresh token истек
+  ERROR_RATE_LIMIT_EXCEEDED = 11;    // Превышен лимит запросов
+  ERROR_UNAUTHENTICATED = 12;        // Отсутствует или невалидная аутентификация
+  ERROR_INVALID_PROJECT_ID = 13;     // Неверный или отсутствующий project_id
+  ERROR_INTERNAL = 99;               // Внутренняя ошибка сервиса
+}
+
+// GetPublicKeyRequest - запрос на получение публичного ключа
+message GetPublicKeyRequest {
+  // Project ID (UUID) - идентификатор проекта
+  string project_id = 1;
+  
+  // Key ID - идентификатор конкретного ключа (опционально)
+  // Если не указан, возвращается текущий активный ключ для проекта
+  string key_id = 2;
+}
+
+// GetPublicKeyResponse - ответ с публичным ключом
+message GetPublicKeyResponse {
+  // Публичный ключ в формате PEM (для RSA, ECDSA, Ed25519)
+  // Для HMAC возвращается пустая строка (HMAC не использует публичные ключи)
+  // Это основной (primary) ключ для подписи
+  string public_key_pem = 1;
+  
+  // Алгоритм (RS256, RS384, RS512, ES256, ES384, ES512, EdDSA, HS256, HS384, HS512)
+  string algorithm = 2;
+  
+  // Key ID - идентификатор ключа
+  string key_id = 3;
+  
+  // Project ID
+  string project_id = 4;
+  
+  // Время истечения кэша (Unix timestamp)
+  // Рекомендуется кэшировать ключ до этого времени
+  // При ротации ключей это время обновляется
+  int64 cache_until = 5;
+  
+  // Список всех активных ключей (для graceful ротации)
+  // Клиенты должны кэшировать все активные ключи для валидации токенов,
+  // подписанных как старыми, так и новыми ключами во время ротации
+  repeated PublicKeyInfo active_keys = 6;
+}
+
+// PublicKeyInfo - информация об активном публичном ключе
+message PublicKeyInfo {
+  // Key ID - идентификатор ключа
+  string key_id = 1;
+  
+  // Публичный ключ в формате PEM
+  string public_key_pem = 2;
+  
+  // Алгоритм
+  string algorithm = 3;
+  
+  // Время истечения активности ключа (Unix timestamp)
+  // После этого времени ключ станет неактивным и не будет использоваться для подписи
+  // Токены, подписанные этим ключом, останутся валидными до своего exp
+  int64 expires_at = 4;
+  
+  // Основной ключ для подписи (true) или старый ключ в процессе ротации (false)
+  bool is_primary = 5;
+}
+
+// HealthCheckRequest - запрос на проверку здоровья
+message HealthCheckRequest {}
+
+// HealthCheckResponse - ответ о состоянии сервиса
+// Формат согласован с JSON Schema: status enum, timestamp, details
+message HealthCheckResponse {
+  // Статус сервиса: "healthy", "degraded", "unhealthy"
+  string status = 1;
+  
+  // Timestamp проверки (Unix timestamp)
+  int64 timestamp = 2;
+  
+  // Детали состояния (опционально)
+  // Содержит информацию о подсистемах: redis, keys, etc.
+  map<string, string> details = 3;
+  
+  // --- Дополнительные поля для обратной совместимости ---
+  
+  // Версия сервиса
+  string version = 4;
+  
+  // Время работы сервиса (uptime в секундах)
+  int64 uptime = 5;
+}
+
+// IssueServiceTokenRequest - запрос на выдачу межсервисного токена
+// IssueServiceTokenRequest - запрос на выдачу межсервисного токена
+//
+// Этот запрос создает JWT токен со следующей структурой:
+// - Стандартные claims: sub (из source_service), iat, exp, iss, aud, jti (генерируются автоматически)
+// - Обязательные custom claims: project_id (из project_id), type ("inter_service"), source_service (из source_service)
+// - Опциональные custom claims: target_service (из target_service), user_id (из user_id), + все из claims
+//
+// См. структуру токена: api/schemas/JWT_PAYLOAD_SERVICE.schema.json
+message IssueServiceTokenRequest {
+  // Source service - сервис, который запрашивает токен (обязательно)
+  // Попадет в JWT claim "source_service" и "sub"
+  // Валидация: должен быть непустой, должен соответствовать service_auth.secrets в конфигурации
+  string source_service = 1;
+  
+  // Target service - сервис, для которого предназначен токен (опционально)
+  // Попадет в JWT claim "target_service"
+  // Если не указан, токен может использоваться для всех сервисов
+  // Если указан, может использоваться для валидации на стороне получателя
+  string target_service = 2;
+  
+  // User ID - идентификатор пользователя (опционально для межсервисных токенов)
+  // Попадет в JWT claim "user_id" (не "sub"!)
+  // Используется для service токенов, привязанных к пользовательскому контексту
+  // Например, когда Gateway перевыпускает user token как service token
+  string user_id = 3;
+  
+  // Дополнительные claims для включения в токен (например: roles, email, username)
+  // Все значения должны быть строками
+  // Эти claims будут добавлены в JWT токен "as is"
+  // Пример: {"roles": "user,admin", "email": "user@example.com"}
+  map<string, string> claims = 4;
+  
+  // Время жизни токена (в секундах, по умолчанию из конфигурации проекта для межсервисных токенов)
+  int64 ttl = 5;
+  
+  // Project ID (UUID) - попадет в JWT claim "project_id" (обязательно)
+  // Если не указан в запросе, используется default_project_id из конфигурации
+  string project_id = 6;
+}
+
+// CreateAPIKeyRequest - запрос на создание API ключа
+message CreateAPIKeyRequest {
+  // Project ID (UUID) - идентификатор проекта
+  string project_id = 1;
+  
+  // User ID - пользователь, которому принадлежит ключ (опционально)
+  string user_id = 2;
+  
+  // Название/описание ключа (для идентификации)
+  string name = 3;
+  
+  // Список разрешений (scopes) для ключа
+  repeated string scopes = 4;
+  
+  // Время жизни ключа (в секундах, 0 = без ограничения)
+  int64 ttl = 5;
+  
+  // IP-адреса, с которых разрешено использование ключа (опционально)
+  repeated string allowed_ips = 6;
+}
+
+// CreateAPIKeyResponse - ответ с созданным API ключом
+message CreateAPIKeyResponse {
+  // API ключ (возвращается только один раз при создании)
+  string api_key = 1;
+  
+  // ID ключа (для последующего управления)
+  string key_id = 2;
+  
+  // Время истечения ключа (Unix timestamp, 0 = без ограничения)
+  int64 expires_at = 3;
+  
+  // Дата создания (Unix timestamp)
+  int64 created_at = 4;
+}
+
+// ValidateAPIKeyRequest - запрос на валидацию API ключа
+message ValidateAPIKeyRequest {
+  // API ключ для валидации
+  string api_key = 1;
+  
+  // Требуемые разрешения (scopes) - опционально
+  repeated string required_scopes = 2;
+  
+  // Project ID (UUID) - идентификатор проекта (обязательно)
+  string project_id = 3;
+}
+
+// ValidateAPIKeyResponse - результат валидации API ключа
+message ValidateAPIKeyResponse {
+  // Ключ валиден
+  bool valid = 1;
+  
+  // Причина невалидности (если valid = false)
+  string error = 2;
+  
+  // Код ошибки
+  ErrorCode error_code = 3;
+  
+  // Project ID
+  string project_id = 4;
+  
+  // User ID (если ключ привязан к пользователю)
+  string user_id = 5;
+  
+  // Разрешения (scopes) ключа
+  repeated string scopes = 6;
+  
+  // Метаданные ключа
+  map<string, string> metadata = 7;
+}
+
+// RevokeAPIKeyRequest - запрос на отзыв API ключа
+message RevokeAPIKeyRequest {
+  // ID ключа для отзыва
+  string key_id = 1;
+  
+  // Или API ключ напрямую
+  string api_key = 2;
+  
+  // Project ID (для проверки прав)
+  string project_id = 3;
+}
+
+// RevokeAPIKeyResponse - результат отзыва API ключа
+message RevokeAPIKeyResponse {
+  // Ключ успешно отозван
+  bool success = 1;
+  
+  // Ошибка (если success = false)
+  string error = 2;
+}
+
+// ListAPIKeysRequest - запрос на получение списка API ключей
+message ListAPIKeysRequest {
+  // Project ID (UUID) - идентификатор проекта
+  string project_id = 1;
+  
+  // User ID - фильтр по пользователю (опционально)
+  string user_id = 2;
+  
+  // Пагинация: номер страницы (начиная с 1)
+  int32 page = 3;
+  
+  // Пагинация: размер страницы
+  int32 page_size = 4;
+}
+
+// ListAPIKeysResponse - список API ключей
+message ListAPIKeysResponse {
+  // Список ключей (без самого ключа, только метаданные)
+  repeated APIKeyInfo keys = 1;
+  
+  // Общее количество ключей
+  int32 total = 2;
+  
+  // Номер текущей страницы
+  int32 page = 3;
+  
+  // Размер страницы
+  int32 page_size = 4;
+}
+
+// APIKeyInfo - информация об API ключе (без самого ключа)
+message APIKeyInfo {
+  // ID ключа
+  string key_id = 1;
+  
+  // Название/описание
+  string name = 2;
+  
+  // Project ID
+  string project_id = 3;
+  
+  // User ID (если привязан)
+  string user_id = 4;
+  
+  // Разрешения (scopes)
+  repeated string scopes = 5;
+  
+  // Дата создания (Unix timestamp)
+  int64 created_at = 6;
+  
+  // Время истечения (Unix timestamp, 0 = без ограничения)
+  int64 expires_at = 7;
+  
+  // Активен ли ключ
+  bool active = 8;
+  
+  // Последнее использование (Unix timestamp)
+  int64 last_used_at = 9;
+}
+
